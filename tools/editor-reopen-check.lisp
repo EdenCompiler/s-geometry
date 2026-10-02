@@ -1,0 +1,72 @@
+;;;; Confere em uma imagem SBCL nova o cenário gravado pelo editor.
+(load (merge-pathnames "bootstrap.lisp" (or *load-truename* *compile-file-truename*)))
+(asdf:load-system :sgeo/editor)
+
+(defun read-acceptance-data (path)
+  "Lê os dados de referência gerados pelo próprio roteiro de aceitação."
+  (with-open-file (stream path :direction :input :external-format :utf-8)
+    (let ((*read-eval* nil) (eof (gensym "EOF")))
+      (let ((data (read stream nil eof)))
+        (when (eq data eof) (error "Arquivo de referência vazio: ~A" path))
+        (unless (eq (read stream nil eof) eof)
+          (error "O arquivo de referência contém mais de uma forma."))
+        data))))
+
+(defun canonical-scene-data (data)
+  "Normaliza IDs locais do processo para comparar conteúdo e referências."
+  (let* ((objects (copy-tree (getf (rest data) :objects)))
+         (geometries (copy-tree (getf (rest data) :geometries)))
+         (materials (copy-tree (getf (rest data) :materials)))
+         (object-ids (make-hash-table))
+         (geometry-ids (make-hash-table))
+         (material-ids (make-hash-table)))
+    (loop for record in objects for index from 1
+          do (setf (gethash (getf record :id) object-ids) index))
+    (loop for record in geometries for index from 1
+          do (setf (gethash (getf record :id) geometry-ids) index))
+    (loop for record in materials for index from 1
+          do (setf (gethash (getf record :id) material-ids) index))
+    (dolist (record objects)
+      (setf (getf record :id) (gethash (getf record :id) object-ids))
+      (when (getf record :parent-id)
+        (setf (getf record :parent-id) (gethash (getf record :parent-id) object-ids)))
+      (when (getf record :geometry-id)
+        (setf (getf record :geometry-id) (gethash (getf record :geometry-id) geometry-ids)))
+      (when (getf record :material-id)
+        (setf (getf record :material-id) (gethash (getf record :material-id) material-ids))))
+    (dolist (record geometries)
+      (setf (getf record :id) (gethash (getf record :id) geometry-ids)))
+    (dolist (record materials)
+      (setf (getf record :id) (gethash (getf record :id) material-ids)))
+    (let ((result (copy-tree data)))
+      (setf (getf (rest result) :root-id)
+            (gethash (getf (rest data) :root-id) object-ids)
+            (getf (rest result) :camera-id)
+            (gethash (getf (rest data) :camera-id) object-ids)
+            (getf (rest result) :selection-id)
+            (and (getf (rest data) :selection-id)
+                 (gethash (getf (rest data) :selection-id) object-ids))
+            (getf (rest result) :objects) objects
+            (getf (rest result) :geometries) geometries
+            (getf (rest result) :materials) materials)
+      result)))
+
+(handler-case
+    (destructuring-bind (scene-path expected-path) (uiop:command-line-arguments)
+      (let* ((loaded (sgeo.serialization:load-world scene-path))
+             (actual (sgeo.serialization:scene-data loaded))
+             (expected (read-acceptance-data expected-path)))
+        (unless (equalp (canonical-scene-data expected)
+                        (canonical-scene-data actual))
+          (error "A cena reaberta não corresponde ao snapshot salvo."))
+        (unless (and (typep (sgeo.scene:world-root loaded) 'sgeo.scene:scene-object)
+                     (sgeo.scene:world-camera loaded))
+          (error "A cena reaberta não possui raiz e câmera válidas."))
+        (format t "M3 reopen: cena versão ~D validada em processo SBCL novo (~D objetos, ~D geometrias).~%"
+                (getf (rest actual) :version)
+                (length (getf (rest actual) :objects))
+                (length (getf (rest actual) :geometries))))
+      (uiop:quit 0))
+  (error (condition)
+    (format *error-output* "Falha ao reabrir a cena: ~A~%" condition)
+    (uiop:quit 1)))
