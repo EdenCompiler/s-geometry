@@ -85,6 +85,7 @@ The first kernel supports **orientable manifold solids and open surfaces**, with
 
 **Status:** Complete. **Release:** First usable release. **Depends on:** M1 and M2.
 
+- [x] Make `tools/run.lisp` the canonical editor launcher; keep the scene demos in `tools/demo.lisp` and retain `tools/editor.lisp` as a compatibility alias.
 - [x] Build a Symbolics-inspired geometry frame with boxed menus, monospace labels, and a persistent command/status area.
 - [x] Provide one configurable viewport that switches between perspective, front, top, and side views.
 - [x] Add an object list, navigable inspector, and numeric editing controls.

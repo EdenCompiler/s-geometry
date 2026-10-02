@@ -46,7 +46,7 @@ Run from the repository root:
 ```bash
 sbcl --script tools/test.lisp
 sbcl --script tools/smoke.lisp
-sbcl --script tools/run.lisp --triangle --frames 3 --hidden --no-repl
+sbcl --script tools/demo.lisp --triangle --frames 3 --hidden --no-repl
 ```
 
 `tools/smoke.lisp` opens and closes three real graphics contexts in one image. It checks the ordinary loop without a frame hook, then performs picking, transforms, material and mesh edits, invalid-edit rollback, behavior redefinition and concurrent mutation with rendering active. Its terminal-listener run introduces intentional reader and evaluation errors, verifies subsequent successful forms and value history, and checks listener cleanup.

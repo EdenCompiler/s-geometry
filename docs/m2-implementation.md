@@ -26,7 +26,7 @@ The geometry kernel implements the [M2 roadmap contract](roadmap.md) and [kernel
 sbcl --script tools/test.lisp
 sbcl --script tools/smoke.lisp
 sbcl --script tools/kernel-smoke.lisp
-sbcl --script tools/run.lisp --kernel
+sbcl --script tools/demo.lisp --kernel
 ```
 
 The headless test entry point loads no GLFW or OpenGL package. The graphics adapter uses **cl-glfw3, cl-opengl and CFFI**, matching the relevant dependencies in the [kons-9 ASDF manifest](https://github.com/kaveh808/kons-9/blob/main/kons-9.asd). Rendering requires a display and an OpenGL 3.3 core context.

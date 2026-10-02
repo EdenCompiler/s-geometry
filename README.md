@@ -19,7 +19,7 @@ The launch scripts load `~/quicklisp/setup.lisp` when present and locate this pr
 
 Loading `sgeo` and running the core tests requires no graphics libraries or display. The editor's headless command, transaction, inspector, listener, and persistence API is in `:sgeo/editor`; the native frontend is loaded separately as `:sgeo/editor/opengl`. This keeps core scene work independent of a graphics context.
 
-## Run
+## Run the editor
 
 From the project directory:
 
@@ -27,36 +27,14 @@ From the project directory:
 sbcl --script tools/run.lisp
 ```
 
-This opens the M1 scene with a spinning shaded cube and a wireframe cube. Enter Lisp forms at the terminal's `sgeo>` prompt while the window remains active.
-
-| Input | Action |
-| --- | --- |
-| Left mouse button | Select the nearest mesh under the cursor |
-| Right mouse drag | Orbit the camera |
-| Middle mouse drag | Pan the camera |
-| Mouse wheel | Zoom |
-| W | Toggle wireframe on the scene's materials |
-| Escape or terminal `:quit` | Close the viewport |
-
-Run the M2 editable box, the M0 triangle, or a finite unattended scene:
+This opens the native M3 editor with an editable polygon box. Use the menus, viewport, inspector, and integrated Lisp listener to work on the live scene. To open a saved scene or choose a finite capture run:
 
 ```bash
-sbcl --script tools/run.lisp --kernel
-sbcl --script tools/run.lisp --triangle
-sbcl --script tools/run.lisp --frames 120 --no-repl --capture artifacts/example.ppm
+sbcl --script tools/run.lisp --open artifacts/editor-acceptance.sgeo
+sbcl --script tools/run.lisp --frames 120 --hidden --no-repl --capture artifacts/editor.ppm
 ```
 
-`--hidden` creates a hidden graphics window; it still needs a graphics context and display. `--help` lists the launcher options. A finite run returns a nonzero process status if the runtime reports a platform or rendering failure.
-
-Open the native M3 editor with the editable box, or load a saved scene:
-
-```bash
-sbcl --script tools/editor.lisp
-sbcl --script tools/editor.lisp --open artifacts/editor-acceptance.sgeo
-sbcl --script tools/editor.lisp --frames 120 --hidden --no-repl --capture artifacts/editor.ppm
-```
-
-The editor also accepts `--scene` to set the save path, `--width` and `--height` to change the window size, and `--help` to list all options. The integrated listener evaluates Lisp in the running image; `sg:*world*` and `sg:*selection*` refer to the live editor scene.
+`--scene` sets the save path; `--width`, `--height`, and `--help` configure or describe the editor launcher. `tools/editor.lisp` remains an alias for the same editor launcher. The integrated listener evaluates Lisp in the running image; `sg:*world*` and `sg:*selection*` refer to the live editor scene.
 
 From an existing Lisp image, the exported facade can open the editor over a world:
 
@@ -67,9 +45,32 @@ From an existing Lisp image, the exported facade can open the editor over a worl
 
 Use `sgeo.editor:make-editor` and `sgeo.editor:execute-editor-command` for headless command-driven editing, transactions, inspection, and replay without loading the native frontend.
 
-## Change the running world
+## Demos
 
-The terminal listener evaluates in the same image as the viewport. `sg:*world*` is the running world and `sg:*selection*` is the selected live object. Multiline forms and standard REPL value/form history are supported; evaluation errors are printed and the scene continues running.
+The standalone M0/M1 and M2 scenes are available through `tools/demo.lisp`. For example, launch the editable M2 box, the M0 triangle, or a finite unattended render:
+
+```bash
+sbcl --script tools/demo.lisp --kernel
+sbcl --script tools/demo.lisp --triangle
+sbcl --script tools/demo.lisp --frames 120 --no-repl --capture artifacts/example.ppm
+```
+
+The demo window accepts these controls:
+
+| Input | Action |
+| --- | --- |
+| Left mouse button | Select the nearest mesh under the cursor |
+| Right mouse drag | Orbit the camera |
+| Middle mouse drag | Pan the camera |
+| Mouse wheel | Zoom |
+| W | Toggle wireframe on the scene's materials |
+| Escape or terminal `:quit` | Close the viewport |
+
+`--hidden` creates a hidden graphics window; it still needs a graphics context and display. `--help` lists the demo options. A finite run returns a nonzero process status if the runtime reports a platform or rendering failure.
+
+## Change a demo world
+
+The snippets below target the standalone M0/M1 demo launched with `tools/demo.lisp`; its terminal listener evaluates in the same image as the viewport. `sg:*world*` is that running world and `sg:*selection*` is the selected live object. The editor starts with an `EditableBox` object and exposes the same live bindings in its integrated listener. Multiline forms and standard REPL value/form history are supported; evaluation errors are printed and the scene continues running.
 
 ```lisp
 (defparameter *cube* (sg:find-object sg:*world* "Cube"))
