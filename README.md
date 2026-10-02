@@ -1,158 +1,108 @@
 # S-Geometry/CL
 
-S-Geometry/CL is a live Common Lisp geometry environment. Lisp objects own scene and geometry state; OpenGL buffers are disposable caches derived from those objects. The native editor combines a polygon modeling viewport, scene inspector, integrated Lisp listener, undo/redo, and versioned scene files.
+S-Geometry/CL is a 3D modeling environment written in Common Lisp, inspired by the original Symbolics S-Geometry.
 
-The first implementation targets Linux and SBCL, using `cl-glfw3`, `cl-opengl`, CFFI, and `cl-freetype2` for the editor's font atlas. Dependencies are chosen to fit this project's backend and UI needs; the Symbolics and kons-9 tradition is a design reference, not a dependency-matching requirement. The [historical S-Geometry summary](docs/original-s-geometry-summary.md) records the original system's broader context and the scope of this implementation. See the [architecture](docs/modern-s-geometry-design.md), [roadmap](docs/roadmap.md), [M0/M1 implementation evidence](docs/m0-m1-implementation.md), [M2 implementation evidence](docs/m2-implementation.md), and [M3 implementation evidence](docs/m3-implementation.md).
+The editor and Lisp listener work on the same objects. You can move a vertex, inspect a mesh, or redefine a modeling function while the window is open. Changes appear in the viewport without reloading the scene.
 
-## Requirements
+The project has a polygon geometry kernel, a scene editor, undo/redo, and scene files you can save and reopen. Development is on Linux with SBCL. The renderer currently uses OpenGL.
 
-- SBCL with ASDF; verified with SBCL 2.5.2.
-- ASDF-visible `bordeaux-threads` and `fiveam` systems.
-- ASDF-visible `cl-glfw3`, `cl-opengl`, `cffi` and `cl-freetype2` systems for the viewport and editor font atlas.
-- For the viewport, native GLFW and an OpenGL 3.3 core context with access to a Linux display.
+## Getting started
 
-The launch scripts load `~/quicklisp/setup.lisp` when present and locate this project from their own path. With Quicklisp, dependencies can be prepared in a Lisp session:
+You'll need SBCL, ASDF, native GLFW and FreeType libraries, and a display with OpenGL 3.3 support. SBCL 2.5.2 is the version used for development.
+
+With Quicklisp installed, load the Lisp dependencies:
 
 ```lisp
-(ql:quickload '(:bordeaux-threads :fiveam :cl-glfw3 :cl-opengl :cffi :cl-freetype2))
+(ql:quickload '(:bordeaux-threads :cl-glfw3 :cl-opengl :cffi :cl-freetype2 :fiveam))
 ```
 
-Loading `sgeo` and running the core tests requires no graphics libraries or display. The editor's headless command, transaction, inspector, listener, and persistence API is in `:sgeo/editor`; the native frontend is loaded separately as `:sgeo/editor/opengl`. This keeps core scene work independent of a graphics context.
-
-## Run the editor
-
-From the project directory:
+Then, from a terminal:
 
 ```bash
+git clone https://github.com/EdenCompiler/s-geometry.git
+cd s-geometry
 sbcl --script tools/run.lisp
 ```
 
-This opens the native M3 editor with an editable polygon box. Use the menus, viewport, inspector, and integrated Lisp listener to work on the live scene. To open a saved scene or choose a finite capture run:
+The launcher loads `~/quicklisp/setup.lisp` if it exists. It opens the editor with an editable box.
 
-```bash
-sbcl --script tools/run.lisp --open artifacts/editor-acceptance.sgeo
-sbcl --script tools/run.lisp --frames 120 --hidden --no-repl --capture artifacts/editor.ppm
-```
+## Using the editor
 
-`--scene` sets the save path; `--width`, `--height`, and `--help` configure or describe the editor launcher. `tools/editor.lisp` remains an alias for the same editor launcher. The integrated listener evaluates Lisp in the running image; `sg:*world*` and `sg:*selection*` refer to the live editor scene.
-
-From an existing Lisp image, the exported facade can open the editor over a world:
-
-```lisp
-(asdf:load-system :sgeo/editor/opengl)
-(sgeo.editor:open-editor (sgeo.scene:make-world))
-```
-
-Use `sgeo.editor:make-editor` and `sgeo.editor:execute-editor-command` for headless command-driven editing, transactions, inspection, and replay without loading the native frontend.
-
-## Demos
-
-The standalone M0/M1 and M2 scenes are available through `tools/demo.lisp`. For example, launch the editable M2 box, the M0 triangle, or a finite unattended render:
-
-```bash
-sbcl --script tools/demo.lisp --kernel
-sbcl --script tools/demo.lisp --triangle
-sbcl --script tools/demo.lisp --frames 120 --no-repl --capture artifacts/example.ppm
-```
-
-The demo window accepts these controls:
+Select objects or mesh elements in the viewport, then use the menus or inspector to edit them. The toolbar switches between object, vertex, edge, face, and face-region selection. In region mode, Shift-click adds or removes faces.
 
 | Input | Action |
 | --- | --- |
-| Left mouse button | Select the nearest mesh under the cursor |
-| Right mouse drag | Orbit the camera |
-| Middle mouse drag | Pan the camera |
+| Left click | Select an object or mesh element |
+| Right click | Open the context menu |
+| Alt + left drag | Orbit the camera |
+| Middle drag | Pan |
 | Mouse wheel | Zoom |
-| W | Toggle wireframe on the scene's materials |
-| Escape or terminal `:quit` | Close the viewport |
+| Ctrl+Z / Ctrl+Y | Undo / redo |
+| Ctrl+Enter | Evaluate the listener input |
 
-`--hidden` creates a hidden graphics window; it still needs a graphics context and display. `--help` lists the demo options. A finite run returns a nonzero process status if the runtime reports a platform or rendering failure.
+The File menu saves to `scene.sgeo` by default. You can choose the scene path at launch or open a saved file:
 
-## Change a demo world
-
-The snippets below target the standalone M0/M1 demo launched with `tools/demo.lisp`; its terminal listener evaluates in the same image as the viewport. `sg:*world*` is that running world and `sg:*selection*` is the selected live object. The editor starts with an `EditableBox` object and exposes the same live bindings in its integrated listener. Multiline forms and standard REPL value/form history are supported; evaluation errors are printed and the scene continues running.
-
-```lisp
-(defparameter *cube* (sg:find-object sg:*world* "Cube"))
-(sg:translate *cube* '(0 0.5d0 0))
-(sg:set-material-color (sg:mesh-object-material *cube*) '(0.9d0 0.3d0 0.2d0))
-(setf sg:*selection* *cube*)
-
-(defun sgeo.examples:spin-rate () 0d0)
-(defun sgeo.examples:spin-rate () -0.8d0)
-
-(sg:set-mesh-position (sg:mesh-object-geometry *cube*) 0 '(-1d0 -0.85d0 -0.85d0))
+```bash
+sbcl --script tools/run.lisp --scene my-scene.sgeo
+sbcl --script tools/run.lisp --open my-scene.sgeo
 ```
 
-Redefining `spin-rate` changes the existing cube's behavior without replacing its world, object, or geometry. Geometry edits validate their candidate data before publication; invalid edits preserve the prior valid mesh. Transform and color changes use existing GPU geometry buffers; geometry revisions trigger a new upload.
+Run `sbcl --script tools/run.lisp --help` for the window size, capture, and other options. `tools/editor.lisp` is an alias for the same launcher.
 
-With `--kernel`, edit the existing polygon box through generation-checked handles:
+## Working from Lisp
+
+The listener has access to the current world through `sg:*world*` and the selected object through `sg:*selection*`. Enter inserts a new line; Ctrl+Enter evaluates the form.
+
+Try this after opening the default scene:
 
 ```lisp
-(defparameter *mesh* (sg:mesh-object-geometry
-                     (sg:find-object sg:*world* "EditableBox")))
-(defparameter *vertex* (first (sg:mesh-vertices *mesh*)))
-(sg:set-vertex-position *mesh* *vertex*
-                        (sg:v+ (sg:vertex-position *mesh* *vertex*) (sg:vec3 -0.1d0 0 0)))
-(sg:split-edge *mesh* (first (sg:mesh-edges *mesh*)))
-(defparameter *face* (first (sg:mesh-faces *mesh*)))
-(sg:extrude-face *mesh* *face* :distance 0.3d0)
-(sg:extrude-face-region *mesh* (list *face* (first (sg:face-neighbors *mesh* *face*)))
-                        :distance 0.2d0)
-(defun sgeo.examples:kernel-extrude-distance () 0.15d0)
-(sgeo.examples:extrude-demo-face *mesh* *face*)
+(defparameter *box* (sg:find-object sg:*world* "EditableBox"))
+(sg:translate *box* '(0 0.5d0 0))
+
+(defparameter *mesh* (sg:mesh-object-geometry *box*))
+(sg:extrude-face *mesh* (first (sg:mesh-faces *mesh*)) :distance 0.25d0)
 ```
 
-Surviving handles retain their identities; handles for removed elements signal `stale-handle-error`, including after their slots are reused. A rejected edit preserves geometry and revision. Constructors include `make-half-edge-box`, `make-sphere`, `make-cylinder`, `make-grid`, and `make-torus`; see the [kernel contract](docs/sgeo-geometry-kernel-spec.md) for queries and operation semantics.
+You can define your own functions around these operations and change them as you work. The mesh stays in the scene, and later calls use the new definition.
 
-## Load from an existing Lisp image
+To open the editor from an existing Lisp session, use your checkout's path:
 
 ```lisp
 (load "/path/to/s-geometry/tools/bootstrap.lisp")
-(asdf:load-system :sgeo)
-(defparameter *scene* (sg:make-world))
-(sg:add-to-world *scene* (sg:make-mesh-object (sg:make-box) :name "Box"))
-
-(asdf:load-system :sgeo/runtime)
-(sg:run *scene* :repl t)
+(asdf:load-system :sgeo/editor/opengl)
+(sg:open-editor (sg:make-world))
 ```
 
-Call `sg:run` from the main thread. The native window and GPU context stay on that thread; the terminal listener uses a worker. Public scene mutations acquire the world's recursive lock, and mesh edits publish coherent state under a separate mesh lock. Group several scene operations with `sg:with-world-lock` when they must be seen together.
+Call `open-editor` from the main thread. For geometry work without a window, load `:sgeo`; the editor's commands and persistence API are available in `:sgeo/editor`.
 
-## Verify the core and rendering adapters
+## Examples and tests
+
+The standalone examples have their own launcher:
+
+```bash
+sbcl --script tools/demo.lisp
+sbcl --script tools/demo.lisp --triangle
+sbcl --script tools/demo.lisp --kernel
+```
+
+Run the core tests with:
 
 ```bash
 sbcl --script tools/test.lisp
-sbcl --script tools/smoke.lisp
-sbcl --script tools/kernel-smoke.lisp
 ```
 
-The first command exercises math, identity, revision tracking, mesh validation, scene transforms, cameras, picking, redefinition, concurrent edits, half-edge topology, primitives, geometry queries, and modeling operations. It confirms that GLFW/OpenGL packages were not loaded. The second uses real GLFW/OpenGL contexts to verify triangle rendering, live mesh cache updates, picking, function redefinition, concurrent REPL execution, error recovery, and cleanup. It writes `artifacts/triangle.ppm` and `artifacts/live-scene.ppm`. The third edits the same live half-edge mesh over nine frames, verifies eight GPU uploads, recovers from an invalid edit, redefines modeling behavior, and writes `artifacts/kernel-scene.ppm`.
-
-## Verify the M3 editor
-
-The current headless suite passes 1,144 checks. CPU-only checks exercise gizmo drag/undo/cancel behavior and workspace sizing, visibility, clock controls, and profile samples:
-
-```bash
-sbcl --script tools/editor-gizmo-check.lisp
-sbcl --script tools/editor-workspace-check.lisp
-```
-
-Run the native M3 first-release demonstration on a machine with a display and an OpenGL 3.3 context:
+These tests run without a display. The native editor checks need a display and an OpenGL context:
 
 ```bash
 sbcl --script tools/editor-acceptance.lisp
-```
-
-The acceptance run completed 28 native frames, drove editor commands through the native frame loop, checked recovery and history behavior, used the integrated listener to redefine and apply an operation, saved a versioned scene, and started a fresh SBCL process to compare the reopened scene. The UI smoke passed 50 native frames plus popup recreation/capture checks, covering menus, views, numeric inspector edits, listener input, gizmo dragging, profile/debug/layout panels, resizing, and timeline controls. The dedicated selection test passed seven native frames, including viewport picking and listener-side topology-edit recovery:
-
-```bash
 sbcl --script tools/editor-ui-smoke.lisp
 sbcl --script tools/editor-selection-native.lisp
 ```
 
-The selection test checked object and visible vertex/edge/face picking, numeric editing of the selected vertex, edge split from Edit, face-region selection and Shift-click add/remove, plus worker-to-owner listener mutation and retired-edge cleanup with inspector fallback. The UI smoke wrote `artifacts/editor-ui.ppm`, `artifacts/editor-profile.ppm`, and `artifacts/editor-popup.ppm`. See [M3 implementation and verification](docs/m3-implementation.md) for test boundaries and scope.
+The [implementation notes](docs/m3-implementation.md) describe the checks in more detail.
 
-## Scope
+## Project notes
 
-The M2 kernel supports orientable manifold solids and open surfaces. It preserves polygon faces while deriving triangulated render data; the M0/M1 triangle-mesh API remains available. Non-manifold topology, individual faces with holes, booleans, subdivision and global self-intersection repair remain outside this kernel's contract.
+The kernel supports manifold solids and open surfaces, with editable polygon faces and half-edge topology. Booleans, subdivision, animation, and a Vulkan renderer are planned.
+
+See the [roadmap](docs/roadmap.md) for current progress, the [design document](docs/modern-s-geometry-design.md) for the broader architecture, and the [kernel specification](docs/sgeo-geometry-kernel-spec.md) for geometry details. The [original S-Geometry summary](docs/original-s-geometry-summary.md) records the historical reference behind the project.
