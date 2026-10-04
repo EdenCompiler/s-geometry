@@ -1,5 +1,22 @@
 (in-package #:sgeo.platform)
 
+(defmacro with-native-graphics-environment (() &body body)
+  "Mascara armadilhas numéricas dos drivers e restaura o ambiente Lisp."
+  #+sbcl
+  `(let ((saved-modes (sb-int:get-floating-point-modes)))
+     (unwind-protect (progn (sb-int:set-floating-point-modes :traps nil) ,@body)
+       (apply #'sb-int:set-floating-point-modes saved-modes)))
+  #-sbcl `(progn ,@body))
+
+(defmethod make-window (&key (width 1024) (height 768) (title "S-Geometry")
+                            (visible t) (backend :opengl))
+  (create-platform-window backend :width width :height height :title title :visible visible))
+
+(defmethod create-platform-window (backend &key width height title visible)
+  (declare (ignore width height title visible))
+  (error 'sgeo.core:platform-error :context "janela"
+         :message (format nil "Backend não carregado: ~S." backend)))
+
 (defmethod poll-events ((window platform-window))
   (declare (ignore window))
   (error 'sgeo.core:platform-error :context "eventos"

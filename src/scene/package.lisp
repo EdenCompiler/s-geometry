@@ -23,6 +23,10 @@
    #:scene-object-visible-p #:scene-object-enabled-p #:scene-object-world
    #:mesh-object #:make-mesh-object #:mesh-object-geometry #:mesh-object-material
    #:simple-material #:make-material #:simple-material-color #:simple-material-wireframe-p
+   #:pbr-material #:make-pbr-material #:pbr-material-data #:set-pbr-material
+   #:pbr-material-metallic #:pbr-material-roughness #:pbr-material-base-color
+   #:pbr-material-emissive #:pbr-material-occlusion
+   #:directional-light #:make-directional-light #:directional-light-data #:set-directional-light
    #:set-material-color #:set-material-wireframe #:add-child #:remove-child #:reparent #:add-to-world
    #:remove-from-world #:find-object #:world-transform #:local->world #:world->local
    #:set-position #:translate

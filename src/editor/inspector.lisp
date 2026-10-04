@@ -55,13 +55,24 @@
            (%inspector-row "Longe" (sgeo.scene:camera-far object) :far)
            (%inspector-row "Altura ortográfica"
                            (sgeo.scene:camera-orthographic-height object)
-                           :orthographic-height)))))
+                           :orthographic-height)))
+   (when (typep object 'sgeo.scene:directional-light)
+     (let ((data (sgeo.scene:directional-light-data object)))
+       (list (%inspector-row "Direção mundial" (getf data :direction))
+             (%inspector-row "Intensidade" (getf data :intensity) :light-intensity)
+             (%inspector-row "Extensão da sombra" (getf data :shadow-extent) :shadow-extent)
+             (%inspector-row "Viés da sombra" (getf data :shadow-bias) :shadow-bias))))))
 
 (defun %material-rows (material)
   (append (list (%inspector-row "Tipo" (type-of material))
                 (%inspector-row "Nome" (sgeo.core:object-name material))
                 (%inspector-row "Cor" (sgeo.scene:simple-material-color material) :color)
                 (%inspector-row "Arame" (sgeo.scene:simple-material-wireframe-p material)))
+          (when (typep material 'sgeo.scene:pbr-material)
+            (list (%inspector-row "Metalicidade" (sgeo.scene:pbr-material-metallic material) :metallic)
+                  (%inspector-row "Rugosidade" (sgeo.scene:pbr-material-roughness material) :roughness)
+                  (%inspector-row "Oclusão" (sgeo.scene:pbr-material-occlusion material) :occlusion)
+                  (%inspector-row "Emissão" (sgeo.scene:pbr-material-emissive material) :emissive)))
           (%object-revision-row material)
           (%metadata-rows material)))
 
@@ -306,6 +317,23 @@
                                      :color (%replace-component
                                              (sgeo.scene:simple-material-color material)
                                              axis value "cor do material"))))
+          ((:metallic :roughness :occlusion :emissive)
+           (let ((material (if (typep target 'sgeo.scene:mesh-object)
+                               (sgeo.scene:mesh-object-material target) target)))
+             (unless (typep material 'sgeo.scene:pbr-material)
+               (error 'sgeo.core:validation-error :context "inspetor PBR" :message "Selecione um material PBR."))
+             (execute-editor-command editor :api :function 'sgeo.scene:set-pbr-material
+               :arguments (mapcar (lambda (argument) (%encode-command-value editor argument))
+                                  (list material field
+                                        (if (eq field :emissive)
+                                            (%replace-component (sgeo.scene:pbr-material-emissive material) axis value "emissão")
+                                            value))))))
+          ((:light-intensity :shadow-extent :shadow-bias)
+           (unless (typep target 'sgeo.scene:directional-light)
+             (error 'sgeo.core:validation-error :context "inspetor da luz" :message "Selecione uma luz direcional."))
+           (execute-editor-command editor :api :function 'sgeo.scene:set-directional-light
+             :arguments (mapcar (lambda (argument) (%encode-command-value editor argument))
+                                (list target (if (eq field :light-intensity) :intensity field) value))))
           ((:fov :near :far :orthographic-height
             :camera-fov :camera-near :camera-far :camera-orthographic-height)
            (let ((name (ecase field

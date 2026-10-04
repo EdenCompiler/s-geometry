@@ -1,12 +1,13 @@
 (defpackage #:sgeo.platform
   (:use #:cl)
-  (:export #:platform-window #:make-window #:poll-events #:window-size
+  (:export #:platform-window #:make-window #:create-platform-window #:poll-events #:window-size
            #:framebuffer-size #:window-should-close-p #:request-window-close
            #:swap-buffers #:close-window #:window-title #:set-window-title
            #:set-key-handler #:set-cursor-handler #:set-scroll-handler
            #:set-mouse-button-handler #:set-character-handler #:set-close-handler #:window-time
            #:window-error #:window-visible-p #:window-cursor-position
-           #:escape-event-p #:press-event-p #:mouse-button-kind #:wireframe-event-p))
+           #:escape-event-p #:press-event-p #:mouse-button-kind #:wireframe-event-p
+           #:with-native-graphics-environment))
 (in-package #:sgeo.platform)
 
 (defclass platform-window ()
@@ -14,7 +15,8 @@
    (visible-p :initarg :visible-p :reader window-visible-p)
    (last-error :initform nil :accessor window-error)))
 
-(defgeneric make-window (&key width height title visible))
+(defgeneric make-window (&key width height title visible backend))
+(defgeneric create-platform-window (backend &key width height title visible))
 (defgeneric poll-events (window))
 (defgeneric window-size (window))
 (defgeneric framebuffer-size (window))

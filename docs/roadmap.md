@@ -8,7 +8,7 @@ The first target is **Linux with SBCL**, using **cl-glfw3, cl-opengl and CFFI** 
 
 The architecture is described in [Modern S-Geometry in Pure Common Lisp](modern-s-geometry-design.md). This roadmap preserves its M0–M8 milestone numbering and divides M3 into an initial editor and later expansion.
 
-**Implementation status:** M0, M1, M2, M3a and M3b are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). M4–M8 remain **Not started**.
+**Implementation status:** M0, M1, M2, M3a, M3b and M4 are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). See [M4 verification evidence](m4-implementation.md) for the shader compiler and Vulkan viewer. M5–M8 remain **Not started**.
 
 Architectural commitments:
 
@@ -107,7 +107,7 @@ The first kernel supports **orientable manifold solids and open surfaces**, with
 
 ## Later milestones
 
-M3b extends the initial editor and is implemented alongside the first-release baseline. M4–M8 are future goals **outside the first usable release**. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
+These milestones are **outside the first usable release**. M3b extends the editor and M4 adds the modern renderer; both are complete. M5–M8 remain future goals. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
 
 ### M3b — Editor expansion
 
@@ -125,16 +125,18 @@ M3b extends the initial editor and is implemented alongside the first-release ba
 
 ### M4 — Shader Lisp and modern renderer
 
-**Status:** Not started. **Release:** Later.
+**Status:** Complete. **Release:** Later.
 
-- [ ] Implement the typed shader AST and Lisp shader front end.
-- [ ] Implement SGIR and SPIR-V generation.
-- [ ] Add a Vulkan backend behind the rendering abstraction.
-- [ ] Expand the material system with PBR, shadows, and a render graph.
-- [ ] Implement shader hot reload with preservation of the previous working shader on failure.
-- [ ] Pass shader and rendering tests and demonstrate the Lisp-authored PBR model viewer.
+- [x] Implement the typed shader AST and Lisp shader front end.
+- [x] Implement SGIR and SPIR-V generation.
+- [x] Add a Vulkan backend behind the rendering abstraction.
+- [x] Expand the material system with PBR, shadows, and a render graph.
+- [x] Implement shader hot reload with preservation of the previous working shader on failure.
+- [x] Pass shader and rendering tests and demonstrate the Lisp-authored PBR model viewer.
 
 **Exit criterion:** A PBR model viewer uses shaders authored in Lisp.
+
+**Verification:** 1,325 headless checks pass, including external Vulkan 1.2 validation of all five stock shader stages. The 13-frame Vulkan demonstration verifies shadows, shader replacement and failure recovery, live mesh/material edits, GPU cache cleanup, allocation failure recovery, resizing with a pending reload, and scene reopening in a fresh SBCL process. A separate sRGB presentation check compares 1,075,200 bytes and exercises out-of-date swapchain recovery. Native runs finish without Vulkan validation messages. See the [M4 implementation and verification notes](m4-implementation.md).
 
 ### M5 — Animation and asset interoperability
 

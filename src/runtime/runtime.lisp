@@ -87,30 +87,31 @@
    :name "sgeo interactive listener")))))
 
 (defun run-world (world &key (width 1024) (height 768) (title "S-Geometry")
-                             (max-frames nil) (visible t) repl capture-path frame-hook)
+                             (max-frames nil) (visible t) repl capture-path frame-hook (backend :opengl) validation)
   "Executa o laço gráfico e devolve WORLD, o renderizador encerrado e o relatório."
   #+sb-thread
   (unless (eq sb-thread:*current-thread* (sb-thread:main-thread))
     (error 'sgeo.core:platform-error :context "thread da janela"
-           :message "O loop GLFW/OpenGL precisa iniciar na thread principal."))
+           :message "O laço gráfico precisa iniciar na thread principal."))
   (unless (and (integerp width) (plusp width) (integerp height) (plusp height)
                (or (null max-frames) (and (integerp max-frames) (plusp max-frames))))
     (error 'sgeo.core:validation-error :context "parâmetros do runtime"
            :message "Largura, altura e limite de quadros precisam ser inteiros positivos."))
   (setf *world* world
         *selection* (sgeo.scene:with-world-lock (world) (sgeo.scene:world-selection world)))
-  (let* ((window nil) (renderer nil) (frame 0) (previous-time 0d0)
+  (let* ((sgeo.render:*graphics-validation* validation)
+         (window nil) (renderer nil) (frame 0) (previous-time 0d0)
          (stop-flag (list nil)) (listener nil) (mouse-x 0d0) (mouse-y 0d0)
          (middle-down nil) (right-down nil) (first-cursor-p t)
          (platform-condition nil))
-    (sgeo.backend.opengl:with-native-graphics-environment ()
+    (sgeo.platform:with-native-graphics-environment ()
       (unwind-protect
          (progn
            (sgeo.scene:with-world-lock (world)
              (setf (sgeo.scene:world-running-p world) t))
            (setf window (sgeo.platform:make-window :width width :height height
-                                                   :title title :visible visible))
-           (setf renderer (sgeo.render:create-renderer window))
+                                                   :title title :visible visible :backend backend))
+           (setf renderer (sgeo.render:create-renderer window) *renderer* renderer)
            (sgeo.scene:with-world-lock (world)
              (%set-selection world *selection* title window))
            (when repl (setf listener (%start-listener world stop-flag)))
@@ -120,6 +121,8 @@
               (declare (ignore scancode mods))
               (when (sgeo.platform:escape-event-p key action)
                 (sgeo.platform:request-window-close window))
+              (when (and (eq backend :vulkan) (eq key :r) (sgeo.platform:press-event-p action))
+                (sgeo.render:reload-renderer-shaders renderer))
               (when (and (sgeo.platform:wireframe-event-p key action)
                          (not (car stop-flag)))
                 (%toggle-wireframe world))))
@@ -174,12 +177,12 @@
                           (setf platform-condition condition))))
                     (multiple-value-bind (fb-width fb-height)
                         (sgeo.platform:framebuffer-size window)
-                      (unless (zerop fb-width)
+                      (when (and (plusp fb-width) (plusp fb-height))
                         (sgeo.render:render-frame renderer world fb-width fb-height))
                       (when (and capture-path
                                  (if max-frames (= (1+ frame) max-frames) (zerop frame)))
                         (handler-case
-                            (sgeo.backend.opengl:capture-framebuffer-ppm window capture-path)
+                            (sgeo.render:capture-frame renderer window capture-path)
                           (error (condition) (setf platform-condition condition)))
                         (setf capture-path nil))
                       (sgeo.platform:swap-buffers window))
@@ -194,6 +197,7 @@
                                         :platform-error (or platform-condition
                                                             (sgeo.platform:window-error window)))))
       (setf (car stop-flag) t)
+      (setf *renderer* nil)
       (sgeo.scene:with-world-lock (world)
         (setf (sgeo.scene:world-running-p world) nil))
       (when listener
@@ -202,5 +206,6 @@
             (bt:interrupt-thread listener
                                  (lambda () (throw 'sgeo-repl-stop nil)))))
         (ignore-errors (bt:join-thread listener)))
-      (when renderer (ignore-errors (sgeo.render:destroy-renderer renderer)))
-      (when window (ignore-errors (sgeo.platform:close-window window)))))))
+      (unwind-protect
+           (when renderer (sgeo.render:destroy-renderer renderer))
+        (when window (sgeo.platform:close-window window)))))))

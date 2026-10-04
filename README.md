@@ -6,7 +6,7 @@ You can build and edit polygon meshes through the editor, through Lisp, or with 
 
 The editor has perspective and orthographic views, vertex/edge/face selection, an inspector, undo and redo, and scene saving. The geometry kernel supports orientable manifold solids and open surfaces.
 
-Development is on Linux with SBCL. The editor currently uses OpenGL; a Lisp shader language and Vulkan renderer are being developed for M4. The [roadmap](docs/roadmap.md) records what's finished and what's still planned.
+Development is on Linux with SBCL. The editor uses OpenGL. A separate Vulkan viewer supports PBR materials, shadows, and shaders written in Lisp. The [roadmap](docs/roadmap.md) records what's finished and what's still planned.
 
 ## Run it
 
@@ -25,6 +25,12 @@ sbcl --script tools/run.lisp
 ```
 
 The editor opens with an editable box. The launcher loads `~/quicklisp/setup.lisp` if it exists. `tools/editor.lisp` is an alias for the same launcher.
+
+For the Vulkan viewer, see the [shader and renderer notes](docs/m4-implementation.md) for dependencies, then run:
+
+```bash
+sbcl --dynamic-space-size 4096 --script tools/pbr-viewer.lisp
+```
 
 ## In the editor
 

@@ -25,7 +25,8 @@
   :description "Mundo vivo, hierarquia, transformações, materiais e câmeras."
   :depends-on (#:sgeo/core #:sgeo/math #:sgeo/geometry #:bordeaux-threads)
   :serial t
-  :components ((:file "src/scene/package") (:file "src/scene/scene")))
+  :components ((:file "src/scene/package") (:file "src/scene/scene")
+               (:file "src/scene/materials")))
 
 (asdf:defsystem #:sgeo
   :description "API pública do núcleo headless do S-Geometry/CL."
@@ -40,11 +41,20 @@
   :serial t
   :components ((:file "src/platform/package") (:file "src/platform/platform")))
 
+(asdf:defsystem #:sgeo/shader
+  :description "SGL: AST tipada, SGIR, SPIR-V e GLSL de inspeção, inteiramente em Lisp."
+  :depends-on (#:sgeo/core #:sgeo/math)
+  :serial t
+  :components ((:file "src/shader/package") (:file "src/shader/frontend")
+               (:file "src/shader/ir") (:file "src/shader/glsl") (:file "src/shader/spirv")))
+
 (asdf:defsystem #:sgeo/render
   :description "Protocolo de renderização sobre instantâneos do mundo Lisp."
-  :depends-on (#:sgeo/scene #:sgeo/platform)
+  :depends-on (#:sgeo/scene #:sgeo/platform #:sgeo/shader #:bordeaux-threads)
   :serial t
-  :components ((:file "src/render/package") (:file "src/render/render")))
+  :components ((:file "src/render/package") (:file "src/render/render")
+               (:file "src/render/graph") (:file "src/render/hot-reload")
+               (:file "src/render/shaders") (:file "src/render/modern-scene")))
 
 (asdf:defsystem #:sgeo/backend/opengl
   :description "Backend OpenGL 3.3 com cl-glfw3, cl-opengl e CFFI."
@@ -54,12 +64,29 @@
                (:file "backends/opengl/glfw")
                (:file "backends/opengl/opengl")))
 
-(asdf:defsystem #:sgeo/runtime
+(asdf:defsystem #:sgeo/backend/vulkan
+  :description "Backend Vulkan: recursos, passes HDR/PBR e apresentação GLFW."
+  :depends-on (#:sgeo-vulkan))
+
+(asdf:defsystem #:sgeo/runtime/core
   :description "Laço gráfico e REPL externo sobre o mesmo mundo vivo."
-  :depends-on (#:sgeo #:sgeo/backend/opengl #:bordeaux-threads)
+  :depends-on (#:sgeo #:sgeo/render #:bordeaux-threads)
   :serial t
   :components ((:file "src/runtime/package") (:file "src/runtime/runtime")
                (:file "src/runtime-api")))
+
+(asdf:defsystem #:sgeo/runtime
+  :description "Runtime com backend OpenGL padrão."
+  :depends-on (#:sgeo/runtime/core #:sgeo/backend/opengl))
+
+(asdf:defsystem #:sgeo/runtime/vulkan
+  :description "Runtime com backend Vulkan, sem carregar OpenGL."
+  :depends-on (#:sgeo/runtime/core #:sgeo/backend/vulkan))
+
+(asdf:defsystem #:sgeo/examples/pbr
+  :description "Visualizador PBR com shaders Lisp, sombras e atualização ao vivo."
+  :depends-on (#:sgeo/runtime/vulkan #:sgeo/serialization)
+  :components ((:file "examples/pbr-scene")))
 
 (asdf:defsystem #:sgeo/examples
   :description "Demonstrações executáveis dos marcos M0, M1 e M2."
@@ -85,14 +112,16 @@
 
 (asdf:defsystem #:sgeo/tests
   :description "Testes headless do núcleo e da cena."
-  :depends-on (#:sgeo #:sgeo/editor #:fiveam)
+  :depends-on (#:sgeo #:sgeo/editor #:sgeo/render #:fiveam)
   :serial t
   :components ((:file "tests/package") (:file "tests/core-math")
                (:file "tests/geometry-scene") (:file "tests/kernel-topology")
                (:file "tests/kernel-geometry") (:file "tests/kernel-operations")
                (:file "tests/serialization") (:file "tests/editor-selection")
                (:file "tests/editor-inspector") (:file "tests/editor-transactions")
-               (:file "tests/editor-listener") (:file "tests/editor-terminal"))
+               (:file "tests/editor-listener") (:file "tests/editor-terminal")
+               (:file "tests/shader-language") (:file "tests/shader-spirv")
+               (:file "tests/modern-render"))
   :perform (test-op (operation component)
              (declare (ignore operation component))
              (unless (uiop:symbol-call :sgeo.tests :run-tests)

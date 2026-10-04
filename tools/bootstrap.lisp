@@ -6,4 +6,5 @@
 (defparameter *project-root*
   (uiop:pathname-parent-directory-pathname
    (uiop:pathname-directory-pathname (or *load-truename* *compile-file-truename*))))
+(pushnew *project-root* asdf:*central-registry* :test #'equal)
 (asdf:load-asd (merge-pathnames "sgeo.asd" *project-root*))

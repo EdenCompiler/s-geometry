@@ -123,7 +123,7 @@
              :message (format nil "OpenGL 3.3 ou superior é necessário; disponível: ~A." version)))
     version))
 
-(defmethod sgeo.platform:make-window (&key (width 1024) (height 768)
+(defmethod sgeo.platform:create-platform-window ((backend (eql :opengl)) &key (width 1024) (height 768)
                                            (title "S-Geometry") (visible t))
   (unless (and (integerp width) (plusp width) (integerp height) (plusp height))
     (error 'sgeo.core:validation-error :context "janela GLFW"

@@ -47,9 +47,14 @@
     (%fail context (format nil "Esperava uma lista de ~D números reais finitos." count)))
   value)
 
+(defun %schema-string (value)
+  "Retorna uma string geral, sem preservar especialização de array de caracteres."
+  (make-array (length value) :element-type 'character :initial-contents value))
+
 (defun %copy-metadata-value (value &optional (seen (make-hash-table :test #'eq)))
   "Copia somente valores de metadados que podem ser representados com segurança."
-  (cond ((or (null value) (eq value t) (stringp value) (keywordp value)) value)
+  (cond ((stringp value) (%schema-string value))
+        ((or (null value) (eq value t) (keywordp value)) value)
         ((numberp value)
          (if (%finite-real-p value) value (%fail "metadados" "Número não finito nos metadados.")))
         ((consp value)
@@ -95,7 +100,7 @@
   (let* ((transform (scene-object-local-transform object))
          (rotation (sgeo.math::quaternion-data (transform-rotation transform)))
          (base (list :id (object-id object)
-                     :name (object-name object)
+                     :name (%schema-string (object-name object))
                      :metadata (%metadata-data object)
                      :enabled-p (scene-object-enabled-p object)
                      :visible-p (scene-object-visible-p object)
@@ -122,6 +127,15 @@
        (append (list :type :mesh-object) base
                (list :geometry-id (object-id (mesh-object-geometry object))
                      :material-id (object-id (mesh-object-material object)))))
+      ((typep object 'sgeo.scene:directional-light)
+       (unless (eq (class-of object) (find-class 'sgeo.scene:directional-light))
+         (%fail "serialização" "Subclasses de luz não são suportadas."))
+       (append (list :type :directional-light) base
+               (list :light (list :direction (%vector-values (slot-value object 'sgeo.scene::direction))
+                                  :color (%vector-values (slot-value object 'sgeo.scene::color))
+                                  :intensity (slot-value object 'sgeo.scene::intensity)
+                                  :shadow-extent (slot-value object 'sgeo.scene::shadow-extent)
+                                  :shadow-bias (slot-value object 'sgeo.scene::shadow-bias)))))
       ((typep object 'scene-object)
        (when (not (eq (class-of object) (find-class 'scene-object)))
          (%fail "serialização" "Subclasses de objetos de cena não são suportadas."))
@@ -139,7 +153,7 @@
                (normals (copy-seq (sgeo.geometry::%mesh-raw-normals geometry)))
                (indices (copy-seq (sgeo.geometry::%mesh-raw-indices geometry))))
            (list :id (object-id geometry) :type :triangle-mesh
-                 :name (object-name geometry) :metadata metadata
+                 :name (%schema-string (object-name geometry)) :metadata metadata
                  :positions (%vector3-lists positions) :normals (%vector3-lists normals)
                  :indices (%vector-values indices)))))
       ((typep geometry 'half-edge-mesh)
@@ -154,7 +168,7 @@
            (loop for old-index in active-vertices for new-index from 0
                  do (setf (gethash old-index remap) new-index))
            (list :id (object-id geometry) :type :half-edge-mesh
-                 :name (object-name geometry) :metadata metadata
+                 :name (%schema-string (object-name geometry)) :metadata metadata
                  :positions
                  (mapcar (lambda (i)
                            (%vector-values
@@ -174,12 +188,19 @@
 (defun %material-record (material)
   (unless (typep material 'simple-material)
     (%fail "serialização" "Tipo de material não suportado."))
-  (unless (eq (class-of material) (find-class 'simple-material))
+  (unless (member (class-of material) (list (find-class 'simple-material)
+                                         (find-class 'sgeo.scene:pbr-material)))
     (%fail "serialização" "Subclasses de material não são suportadas."))
-  (list :id (object-id material) :type :simple-material :name (object-name material)
+  (append
+   (list :id (object-id material)
+        :type (if (typep material 'sgeo.scene:pbr-material) :pbr-material :simple-material)
+        :name (%schema-string (object-name material))
         :metadata (%metadata-data material)
         :color (%vector-values (simple-material-color material))
-        :wireframe-p (simple-material-wireframe-p material)))
+        :wireframe-p (simple-material-wireframe-p material))
+   (when (typep material 'sgeo.scene:pbr-material)
+     (list :pbr (loop for (key value) on (sgeo.scene:pbr-material-data material) by #'cddr
+                     append (list key (if (vectorp value) (%vector-values value) value)))))))
 
 (defun scene-data (world)
   "Retorna um snapshot plist legível, independente das instâncias vivas da cena."
@@ -273,7 +294,7 @@
                (unless (member value '(nil t)) (%fail context "Esperava T ou NIL."))))
       (dolist (record (%prop data :objects))
         (%plist-pairs record "objeto" '(:id :type :name :metadata :enabled-p :visible-p :parent-id :transform)
-                      '(:geometry-id :material-id :camera))
+                      '(:geometry-id :material-id :camera :light))
         (unique-id (%prop record :id) object-table "objeto")
         (unless (stringp (%prop record :name)) (%fail "objeto" "Nome precisa ser string."))
         (check-meta (%prop record :metadata))
@@ -286,17 +307,17 @@
         (case (%prop record :type)
           (:scene-object
            (when (some (lambda (key) (%has-property-p record key))
-                       '(:geometry-id :material-id :camera))
+                       '(:geometry-id :material-id :camera :light))
              (%fail "objeto" "Campos de tipo incorreto no objeto simples.")))
           (:mesh-object
-           (when (%has-property-p record :camera)
+           (when (or (%has-property-p record :camera) (%has-property-p record :light))
              (%fail "objeto" "Campo de câmera em objeto de malha."))
            (unless (and (integerp (%prop record :geometry-id))
                         (integerp (%prop record :material-id)))
              (%fail "objeto" "Referência de geometria ou material inválida.")))
           (:camera
            (when (some (lambda (key) (%has-property-p record key))
-                       '(:geometry-id :material-id))
+                       '(:geometry-id :material-id :light))
              (%fail "câmera" "Referência de malha/material em objeto de câmera."))
            (%plist-pairs (%prop record :camera) "câmera"
                          '(:target :up :fov :near :far :projection-mode :orthographic-height) nil)
@@ -330,6 +351,14 @@
                              (* 1d-24 (funcall length-squared forward)
                                 (funcall length-squared up))))
                  (%fail "câmera" "A orientação da câmera é degenerada.")))))
+          (:directional-light
+           (when (some (lambda (key) (%has-property-p record key)) '(:geometry-id :material-id :camera))
+             (%fail "luz" "Campos de outro tipo em luz direcional."))
+           (let ((light (%prop record :light)))
+             (%plist-pairs light "luz" '(:direction :color :intensity :shadow-extent :shadow-bias) nil)
+             (%vec-list (getf light :direction) 3 "direção da luz")
+             (%vec-list (getf light :color) 3 "cor da luz")
+             (apply #'sgeo.scene:make-directional-light light)))
           (otherwise (%fail "objeto" "Tipo de objeto desconhecido."))))
       (dolist (record (%prop data :geometries))
         (unless (member (%prop record :type) '(:triangle-mesh :half-edge-mesh))
@@ -357,8 +386,21 @@
                 (unless (and (%proper-list-p face) (every (lambda (index) (and (integerp index) (>= index 0))) face))
                   (%fail "geometria" "Loop poligonal inválido."))))))
       (dolist (record (%prop data :materials))
-        (%plist-pairs record "material" '(:id :type :name :metadata :color :wireframe-p) nil)
-        (unless (eq (%prop record :type) :simple-material) (%fail "material" "Tipo de material desconhecido."))
+        (%plist-pairs record "material" '(:id :type :name :metadata :color :wireframe-p) '(:pbr))
+        (unless (member (%prop record :type) '(:simple-material :pbr-material))
+          (%fail "material" "Tipo de material desconhecido."))
+        (when (eq (%prop record :type) :simple-material)
+          (when (%has-property-p record :pbr) (%fail "material" "Parâmetros PBR em material simples.")))
+        (when (eq (%prop record :type) :pbr-material)
+          (let ((pbr (%prop record :pbr)))
+            (%plist-pairs pbr "PBR" '(:base-color :metallic :roughness :occlusion :emissive
+                                      :casts-shadow-p :receives-shadow-p) nil)
+            (%vec-list (getf pbr :base-color) 4 "cor PBR")
+            (%vec-list (getf pbr :emissive) 3 "emissão PBR")
+            (%vec-list (%prop record :color) 3 "cor do material")
+            (unless (every #'= (%prop record :color) (subseq (getf pbr :base-color) 0 3))
+              (%fail "material PBR" "As representações RGB e RGBA precisam ter a mesma cor."))
+            (apply #'sgeo.scene:make-pbr-material pbr)))
         (unique-id (%prop record :id) material-table "material")
         (unless (stringp (%prop record :name)) (%fail "material" "Nome precisa ser string."))
         (check-meta (%prop record :metadata))
@@ -447,15 +489,22 @@
                                         :metadata (%metadata-from-data (getf record :metadata)))))))
           (setf (gethash (getf record :id) geometry-map) geometry)))
       (dolist (record (%prop data :materials))
-        (let ((material (make-material :name (getf record :name)
-                                       :color (apply #'make-vec3 (getf record :color))
-                                       :wireframe-p (getf record :wireframe-p))))
+        (let ((material (if (eq (getf record :type) :pbr-material)
+                            (apply #'sgeo.scene:make-pbr-material :name (getf record :name) (getf record :pbr))
+                            (make-material :name (getf record :name)
+                                           :color (apply #'make-vec3 (getf record :color))
+                                           :wireframe-p (getf record :wireframe-p)))))
+          (when (typep material 'sgeo.scene:pbr-material)
+            (sgeo.scene:set-material-color material (getf record :color))
+            (sgeo.scene:set-material-wireframe material (getf record :wireframe-p)))
           (%restore-object-metadata material (getf record :metadata))
           (setf (gethash (getf record :id) material-map) material)))
       (dolist (record (%prop data :objects))
         (let* ((type (getf record :type))
                (object (case type
                          (:scene-object (make-scene-object :name (getf record :name)))
+                         (:directional-light (apply #'sgeo.scene:make-directional-light
+                                                    :name (getf record :name) (getf record :light)))
                          (:mesh-object (make-mesh-object (gethash (getf record :geometry-id) geometry-map)
                                                          :name (getf record :name)
                                                          :material (gethash (getf record :material-id) material-map)))
@@ -475,7 +524,8 @@
       (let* ((root (gethash (%prop data :root-id) object-map))
              (camera (gethash (%prop data :camera-id) object-map))
              (world (make-world :root root :camera camera)))
-        (dolist (record (%prop data :objects))
+        ;; ADD-CHILD acrescenta no início; ligue irmãos do último para o primeiro.
+        (dolist (record (reverse (%prop data :objects)))
           (let ((parent-id (getf record :parent-id)))
             (when parent-id
               (add-child (gethash parent-id object-map)
@@ -497,21 +547,24 @@
 
 (defun save-world (world path)
   "Grava um mundo num arquivo irmão temporário e só publica após a escrita completa."
-  (let* ((target (pathname path)) (temporary (%temporary-pathname target))
-         (data (scene-data world)))
-    (unwind-protect
-         (progn
-           (with-open-file (stream temporary :direction :output :if-exists :error
-                                   :if-does-not-exist :create :external-format :utf-8)
-             (let ((*print-readably* t) (*print-circle* nil) (*print-pretty* t)
-                   (*print-case* :upcase) (*package* (find-package :keyword)))
+  (let ((*print-readably* t) (*print-escape* t) (*print-array* nil)
+        (*print-base* 10) (*print-radix* nil) (*print-circle* nil)
+        (*print-gensym* t) (*print-pretty* nil) (*print-case* :upcase)
+        (*print-level* nil) (*print-length* nil) (*print-lines* nil)
+        (*package* (find-package :keyword)))
+    (let* ((target (pathname path)) (temporary (%temporary-pathname target))
+           (data (scene-data world)))
+      (unwind-protect
+           (progn
+             (with-open-file (stream temporary :direction :output :if-exists :error
+                                     :if-does-not-exist :create :external-format :utf-8)
                (prin1 data stream)
                (terpri stream)
-               (finish-output stream)))
-           (uiop:rename-file-overwriting-target temporary target)
-           target)
-      (when (probe-file temporary)
-        (ignore-errors (delete-file temporary))))))
+               (finish-output stream))
+             (uiop:rename-file-overwriting-target temporary target)
+             target)
+        (when (probe-file temporary)
+          (ignore-errors (delete-file temporary)))))))
 
 (defun load-world (path)
   "Lê uma única forma de dados sem avaliação e retorna um mundo validado novo."

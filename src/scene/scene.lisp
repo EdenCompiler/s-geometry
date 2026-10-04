@@ -512,8 +512,10 @@
          (touch-object object :enabled-state-changed))
        new-value))))
 
-(defun (setf simple-material-color) (color material)
-  "Atualiza a cor do material e avança sua revisão."
+(defgeneric (setf simple-material-color) (color material)
+  (:documentation "Atualiza a cor do material e avança sua revisão."))
+
+(defmethod (setf simple-material-color) (color (material simple-material))
   (let ((new-color (%vec3-copy color "cor do material")))
     (unless (equalp new-color (slot-value material 'color))
       (setf (slot-value material 'color) new-color)

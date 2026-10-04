@@ -33,7 +33,8 @@
         unless (member name '(sgeo.core::id sgeo.core::revision sgeo.core::observer-lock
                               sgeo.core::observers sgeo.geometry::state sgeo.geometry::kernel-lock
                               sgeo.geometry::data-lock sgeo.geometry::positions
-                              sgeo.geometry::normals sgeo.geometry::indices sgeo.geometry::bounds))
+                              sgeo.geometry::normals sgeo.geometry::indices sgeo.geometry::bounds
+                              sgeo.scene::lock))
         when (slot-boundp object name)
         collect (list name (%snapshot-value (slot-value object name))))
   #-sbcl

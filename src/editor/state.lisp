@@ -102,6 +102,7 @@
                   sgeo.scene:add-child sgeo.scene:remove-child sgeo.scene:reparent
                   sgeo.scene:add-to-world sgeo.scene:remove-from-world
                   sgeo.scene:set-material-color sgeo.scene:set-material-wireframe
+                  sgeo.scene:set-pbr-material sgeo.scene:set-directional-light
                   sgeo.scene:set-camera-eye sgeo.scene:set-camera-target sgeo.scene:set-camera-up
                   sgeo.scene:set-camera-projection sgeo.scene:set-camera-frame
                   sgeo.scene:orbit-camera sgeo.scene:pan-camera sgeo.scene:zoom-camera

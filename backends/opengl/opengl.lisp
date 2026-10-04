@@ -274,6 +274,10 @@
           (list :gpu-meshes (hash-table-count (%mesh-cache renderer))
                 :opengl-version (gl:get-string :version))))
 
+(defmethod sgeo.render:capture-frame ((renderer opengl-renderer) window path)
+  (declare (ignore renderer))
+  (capture-framebuffer-ppm window path))
+
 (defun capture-framebuffer-ppm (window path)
   "Grava o framebuffer atual como PPM P6, com origem no canto superior esquerdo."
   (multiple-value-bind (width height) (sgeo.platform:framebuffer-size window)
