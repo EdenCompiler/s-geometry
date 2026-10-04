@@ -1,14 +1,16 @@
 # S-Geometry/CL
 
-S-Geometry/CL is a Common Lisp 3D modeler inspired by Symbolics' S-Geometry.
+S-Geometry/CL is a 3D modeling environment written in Common Lisp, inspired by Symbolics' S-Geometry.
 
-The editor and Lisp listener work on the same scene. Select a face, inspect its mesh in the listener, and change it with Lisp while the editor is open.
+You can build and edit polygon meshes through the editor, through Lisp, or with a mixture of both. The viewport and listener share the same objects: a mesh you select on screen is the mesh your Lisp code changes. You can redefine a modeling function and try it on that mesh without reopening the scene.
 
-The editor includes polygon modeling, perspective and orthographic views, an inspector, undo and redo, and scene saving. The geometry kernel uses half-edge topology for orientable manifold solids and open surfaces. Development targets Linux with SBCL, and the editor uses OpenGL.
+The editor has perspective and orthographic views, vertex/edge/face selection, an inspector, undo and redo, and scene saving. The geometry kernel supports orientable manifold solids and open surfaces.
+
+Development is on Linux with SBCL. The editor currently uses OpenGL; a Lisp shader language and Vulkan renderer are being developed for M4. The [roadmap](docs/roadmap.md) records what's finished and what's still planned.
 
 ## Run it
 
-You'll need SBCL, ASDF, GLFW, FreeType, and a display with OpenGL 3.3 support. The project is developed with SBCL 2.5.2. At the SBCL prompt, load the Lisp dependencies with Quicklisp:
+You'll need SBCL, Quicklisp, the GLFW and FreeType shared libraries, and a display with OpenGL 3.3 support. Development currently uses SBCL 2.5.2. With Quicklisp loaded at the SBCL prompt, install the Lisp dependencies:
 
 ```lisp
 (ql:quickload '(:bordeaux-threads :cl-glfw3 :cl-opengl :cffi :cl-freetype2 :fiveam))
@@ -22,11 +24,11 @@ cd s-geometry
 sbcl --script tools/run.lisp
 ```
 
-`tools/run.lisp` loads `~/quicklisp/setup.lisp` when it's available and opens an editable box. `tools/editor.lisp` runs the same launcher.
+The editor opens with an editable box. The launcher loads `~/quicklisp/setup.lisp` if it exists. `tools/editor.lisp` is an alias for the same launcher.
 
-## A first edit
+## In the editor
 
-Use the toolbar to choose object, vertex, edge, face, or region selection, then click in the viewport. The menus provide modeling operations, and the inspector lets you edit numeric values. For a face region, Shift-click adds or removes faces.
+Choose object, vertex, edge, face, or region selection in the toolbar, then click in the viewport. Modeling operations are in the menus; numeric values can be edited in the inspector. Shift-click adds or removes faces from a region selection.
 
 Alt + left drag orbits the camera, middle drag pans, and the wheel zooms. Right-click opens the context menu. Ctrl+Z and Ctrl+Y undo and redo edits.
 
@@ -37,11 +39,11 @@ sbcl --script tools/run.lisp --scene my-scene.sgeo
 sbcl --script tools/run.lisp --open my-scene.sgeo
 ```
 
-Other launcher options, including window size and frame capture, are listed by `sbcl --script tools/run.lisp --help`.
+Run `sbcl --script tools/run.lisp --help` for the other launcher options.
 
-## Use the listener
+## Working in Lisp
 
-The listener at the bottom of the editor evaluates Lisp in the running image. Enter adds a line; Ctrl+Enter evaluates the input. `sg:*world*` is the current world, and `sg:*selection*` is the selected object.
+The listener at the bottom of the editor evaluates Lisp in the running image. Enter adds a line and Ctrl+Enter evaluates the input. `sg:*world*` holds the current world; `sg:*selection*` holds the selected object.
 
 For example, move the default box and extrude one of its faces:
 
@@ -53,7 +55,7 @@ For example, move the default box and extrude one of its faces:
 (sg:extrude-face *mesh* (first (sg:mesh-faces *mesh*)) :distance 0.25d0)
 ```
 
-These are the same operations used by the editor. You can put them in your own functions, redefine those functions, and apply them to the existing mesh. A failed geometry edit leaves the last valid mesh intact.
+The editor uses these same operations. A failed geometry edit leaves the last valid mesh intact, so you can correct the call and keep working.
 
 To start from an existing Lisp session, replace the path below with your checkout:
 
@@ -63,7 +65,7 @@ To start from an existing Lisp session, replace the path below with your checkou
 (sg:open-editor (sg:make-world))
 ```
 
-Call `open-editor` from the main thread. For geometry work without a window, load `:sgeo`. Editor commands and scene persistence are available through `:sgeo/editor`.
+Call `open-editor` from the main thread. Load `:sgeo` for geometry work without a window, or `:sgeo/editor` for editor commands and scene persistence without the graphical interface.
 
 ## Tests and examples
 
@@ -81,7 +83,7 @@ sbcl --script tools/editor-ui-smoke.lisp
 sbcl --script tools/editor-selection-native.lisp
 ```
 
-There are also standalone scene examples:
+To run the scene examples:
 
 ```bash
 sbcl --script tools/demo.lisp
@@ -89,10 +91,4 @@ sbcl --script tools/demo.lisp --triangle
 sbcl --script tools/demo.lisp --kernel
 ```
 
-The [editor implementation notes](docs/m3-implementation.md) describe what the checks cover.
-
-## Where the project is going
-
-The basic editor and geometry kernel are in place. M4 is in progress and covers a Lisp shader language and Vulkan rendering. Animation, simulation, and more modeling operations are later goals. The [roadmap](docs/roadmap.md) tracks the current status.
-
-For more detail, see the [design document](docs/modern-s-geometry-design.md) and [geometry-kernel specification](docs/sgeo-geometry-kernel-spec.md). The [original S-Geometry summary](docs/original-s-geometry-summary.md) describes the system that inspired this project.
+The [editor implementation notes](docs/m3-implementation.md) describe what the checks cover. For the internals, see the [design document](docs/modern-s-geometry-design.md) and [geometry-kernel specification](docs/sgeo-geometry-kernel-spec.md). The [original S-Geometry summary](docs/original-s-geometry-summary.md) gives some background on the system that inspired this project.
