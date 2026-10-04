@@ -1,14 +1,14 @@
 # S-Geometry/CL
 
-S-Geometry/CL is a Common Lisp 3D modeler inspired by the polygon editor and database of the original Symbolics S-Geometry.
+S-Geometry/CL is a Common Lisp 3D modeler inspired by Symbolics' S-Geometry.
 
-The idea is to keep modeling and programming close together. Select a face in the editor, inspect its mesh in the listener, then write a function to change it. Both work with the same Lisp objects, so you can redefine that function and keep using the scene you already have open.
+The editor and Lisp listener work on the same scene. Select a face, inspect its mesh in the listener, and change it with Lisp while the editor is open.
 
-There's a working editor with polygon modeling, perspective and orthographic views, an inspector, undo/redo, and scene saving. The geometry kernel uses half-edge topology and supports orientable manifold solids and open surfaces. Development is on Linux with SBCL; the current editor uses OpenGL.
+The editor includes polygon modeling, perspective and orthographic views, an inspector, undo and redo, and scene saving. The geometry kernel uses half-edge topology for orientable manifold solids and open surfaces. Development targets Linux with SBCL, and the editor uses OpenGL.
 
 ## Run it
 
-You'll need SBCL, ASDF, GLFW, FreeType, and a display with OpenGL 3.3 support. The project is developed with SBCL 2.5.2. With Quicklisp installed, load the dependencies once:
+You'll need SBCL, ASDF, GLFW, FreeType, and a display with OpenGL 3.3 support. The project is developed with SBCL 2.5.2. At the SBCL prompt, load the Lisp dependencies with Quicklisp:
 
 ```lisp
 (ql:quickload '(:bordeaux-threads :cl-glfw3 :cl-opengl :cffi :cl-freetype2 :fiveam))
@@ -93,6 +93,6 @@ The [editor implementation notes](docs/m3-implementation.md) describe what the c
 
 ## Where the project is going
 
-The basic editor and geometry kernel are in place. Shader Lisp and a Vulkan renderer are the next milestone; animation, simulation, and more modeling operations follow. The [roadmap](docs/roadmap.md) tracks what's finished and what's still ahead.
+The basic editor and geometry kernel are in place. M4 is in progress and covers a Lisp shader language and Vulkan rendering. Animation, simulation, and more modeling operations are later goals. The [roadmap](docs/roadmap.md) tracks the current status.
 
 For more detail, see the [design document](docs/modern-s-geometry-design.md) and [geometry-kernel specification](docs/sgeo-geometry-kernel-spec.md). The [original S-Geometry summary](docs/original-s-geometry-summary.md) describes the system that inspired this project.
