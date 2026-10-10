@@ -89,7 +89,7 @@
       (setf (gethash (first pair) table) (second pair)))))
 
 (defun %vector-values (vector)
-  (loop for value across vector collect value))
+  (when vector (loop for value across vector collect value)))
 
 (defun %vector3-lists (flat)
   (loop for offset from 0 below (length flat) by 3
@@ -122,7 +122,8 @@
                                    :projection-mode (camera-projection-mode object)
                                    :orthographic-height (camera-orthographic-height object)))))
       ((typep object 'mesh-object)
-       (unless (eq (class-of object) (find-class 'mesh-object))
+       (unless (or (eq (class-of object) (find-class 'mesh-object))
+                   (eq (class-of object) (find-class 'sgeo.animation:deformable-mesh-object)))
          (%fail "serialização" "Subclasses de objetos de malha não são suportadas."))
        (append (list :type :mesh-object) base
                (list :geometry-id (object-id (mesh-object-geometry object))
@@ -219,11 +220,13 @@
             (unless (gethash material seen-material)
               (setf (gethash material seen-material) t)
               (push (%material-record material) materials)))))
-      (list :sgeo-scene :version 1
+      (let ((animation (%copy-metadata-value (%animation-data world objects geometries materials))))
+      (append (list :sgeo-scene :version (if animation 2 1)
             :root-id (object-id root) :camera-id (object-id (world-camera world))
             :selection-id (and (world-selection world) (object-id (world-selection world)))
             :objects (mapcar #'%object-record objects)
-            :geometries (nreverse geometries) :materials (nreverse materials)))))
+            :geometries (nreverse geometries) :materials (nreverse materials))
+              (when animation (list :animation animation)))))))
 
 (defun %safe-tree (form &optional (seen (make-hash-table :test #'eq)))
   "Converte uma forma lida em dados seguros e rejeita símbolos e ciclos."
@@ -263,9 +266,11 @@
   (unless (and (%proper-list-p data) (eq (first data) :sgeo-scene))
     (%fail "cena" "Assinatura de cena desconhecida."))
   (%plist-pairs (rest data) "cena"
-                '(:version :root-id :camera-id :selection-id :objects :geometries :materials) nil)
+                '(:version :root-id :camera-id :selection-id :objects :geometries :materials) '(:animation))
   (unless (eq (first data) :sgeo-scene) (%fail "cena" "Assinatura de cena desconhecida."))
-  (unless (eql (%prop data :version) 1) (%fail "cena" "Versão de cena desconhecida."))
+  (unless (member (%prop data :version) '(1 2)) (%fail "cena" "Versão de cena desconhecida."))
+  (when (and (= (%prop data :version) 1) (%has-property-p (rest data) :animation))
+    (%fail "cena" "A versão 1 não aceita estado de animação."))
   (dolist (key '(:root-id :camera-id))
     (unless (and (integerp (%prop data key)) (plusp (%prop data key)))
       (%fail "cena" "Identificador de raiz ou câmera inválido.")))
@@ -453,6 +458,8 @@
                           (gethash (%prop data :root-id) seen))
                 (%fail "hierarquia" "Objeto não é descendente da raiz.")))))
         )
+      (when (%prop data :animation)
+        (%validate-animation-data (%prop data :animation) object-table geometry-table material-table data))
       (values data object-table geometry-table material-table))))
 
 (defun %restore-object-metadata (object metadata)
@@ -532,6 +539,8 @@
                          (gethash (getf record :id) object-map)))))
         (when (%prop data :selection-id)
           (setf (world-selection world) (gethash (%prop data :selection-id) object-map)))
+        (when (%prop data :animation)
+          (%restore-animation-data world (%prop data :animation) object-map geometry-map material-map))
         world))))
 
 (defvar *temporary-file-counter* 0)

@@ -28,10 +28,23 @@
   :components ((:file "src/scene/package") (:file "src/scene/scene")
                (:file "src/scene/materials")))
 
+(asdf:defsystem #:sgeo/animation
+  :description "Pistas, esqueletos e deformações derivados dos objetos vivos."
+  :depends-on (#:sgeo/scene)
+  :serial t
+  :components ((:file "src/animation/package") (:file "src/animation/skeleton")
+               (:file "src/animation/tracks") (:file "src/animation/playback")))
+
+(asdf:defsystem #:sgeo/gltf
+  :description "Intercâmbio glTF 2.0 de cenas, materiais, malhas e animações."
+  :depends-on (#:sgeo/animation #:yason)
+  :serial t
+  :components ((:file "src/gltf/package") (:file "src/gltf/gltf")))
+
 (asdf:defsystem #:sgeo
   :description "API pública do núcleo headless do S-Geometry/CL."
   :version "0.1.0"
-  :depends-on (#:sgeo/scene)
+  :depends-on (#:sgeo/animation)
   :in-order-to ((test-op (test-op "sgeo/tests")))
   :components ((:file "src/package")))
 
@@ -95,18 +108,25 @@
   :components ((:file "examples/package") (:file "examples/triangle")
                (:file "examples/live-scene") (:file "examples/kernel-scene")))
 
+(asdf:defsystem #:sgeo/examples/animation
+  :description "Personagem glTF animado no mesmo editor e mundo vivo."
+  :depends-on (#:sgeo/editor/opengl)
+  :components ((:file "examples/animation-scene")))
+
 (asdf:defsystem #:sgeo/serialization
   :description "Persistência legível, validada e versionada de cenas Lisp."
-  :depends-on (#:sgeo/scene)
+  :depends-on (#:sgeo/animation)
   :serial t
-  :components ((:file "src/serialization/package") (:file "src/serialization/serialization")))
+  :components ((:file "src/serialization/package") (:file "src/serialization/serialization")
+               (:file "src/serialization/animation")))
 
 (asdf:defsystem #:sgeo/editor
   :description "Comandos, transações, seleção e listener do editor vivo."
-  :depends-on (#:sgeo #:sgeo/serialization)
+  :depends-on (#:sgeo #:sgeo/serialization #:sgeo/gltf)
   :serial t
   :components ((:file "src/editor/package") (:file "src/editor/state")
                (:file "src/editor/transactions") (:file "src/editor/selection")
+               (:file "src/editor/timeline")
                (:file "src/editor/commands") (:file "src/editor/inspector")
                (:file "src/editor/listener") (:file "src/editor/api")))
 
@@ -121,7 +141,10 @@
                (:file "tests/editor-inspector") (:file "tests/editor-transactions")
                (:file "tests/editor-listener") (:file "tests/editor-terminal")
                (:file "tests/shader-language") (:file "tests/shader-spirv")
-               (:file "tests/modern-render"))
+               (:file "tests/modern-render")
+               (:file "tests/animation-tracks") (:file "tests/animation-skeleton")
+               (:file "tests/animation-editor") (:file "tests/animation-persistence")
+               (:file "tests/gltf") (:file "tests/gltf-validation"))
   :perform (test-op (operation component)
              (declare (ignore operation component))
              (unless (uiop:symbol-call :sgeo.tests :run-tests)

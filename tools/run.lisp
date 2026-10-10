@@ -5,7 +5,7 @@
 
 (defun parse-editor-options (arguments)
   "Interpreta opções simples do lançador sem avaliar formulários externos."
-  (let ((frames nil) (visible t) (repl t) (capture nil) (open nil)
+  (let ((frames nil) (visible t) (repl t) (capture nil) (open nil) (import nil)
         (scene-path "scene.sgeo") (width 1280) (height 800))
     (labels ((argument (option)
                (or (pop arguments) (error "~A exige um argumento." option)))
@@ -20,19 +20,23 @@
                      ((string= option "--no-repl") (setf repl nil))
                      ((string= option "--capture") (setf capture (argument option)))
                      ((string= option "--open") (setf open (argument option) scene-path open))
+                     ((string= option "--import") (setf import (argument option)))
                      ((string= option "--scene") (setf scene-path (argument option)))
                      ((string= option "--help")
-                      (format t "sbcl --script tools/run.lisp [--open arquivo.sgeo] [--scene arquivo.sgeo] [--width N] [--height N] [--frames N] [--hidden] [--no-repl] [--capture arquivo.ppm]~%")
+                      (format t "sbcl --script tools/run.lisp [--open arquivo.sgeo] [--import modelo.gltf|modelo.glb] [--scene arquivo.sgeo] [--width N] [--height N] [--frames N] [--hidden] [--no-repl] [--capture arquivo.ppm]~%")
                       (uiop:quit 0))
                      (t (error "Opção desconhecida: ~A" option)))))
-    (values frames visible repl capture open scene-path width height)))
+    (when (and open import) (error "Use --open ou --import por execução."))
+    (values frames visible repl capture open scene-path width height import)))
 
 (handler-case
-    (multiple-value-bind (frames visible repl capture open scene-path width height)
+    (multiple-value-bind (frames visible repl capture open scene-path width height import)
         (parse-editor-options (uiop:command-line-arguments))
-      (let* ((world (if open (sgeo.serialization:load-world open) (sgeo.examples:make-kernel-world)))
+      (let* ((world (cond (open (sgeo.serialization:load-world open))
+                          (import (sgeo.gltf:gltf-world (sgeo.gltf:import-gltf import)))
+                          (t (sgeo.examples:make-kernel-world))))
              (editor (sgeo.editor:make-editor :world world :scene-path scene-path)))
-        (format t "~&S-Geometry/CL — M3 editor~%")
+        (format t "~&S-Geometry/CL — editor~%")
         (format t "LMB: selecionar | RMB: menu | Alt+LMB: orbitar | MMB: deslocar | roda: zoom | Ctrl+Enter: avaliar listener~%")
         (multiple-value-bind (returned report)
             (sgeo.editor.opengl:run-editor editor :width width :height height

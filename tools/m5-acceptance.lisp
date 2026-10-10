@@ -1,0 +1,136 @@
+;;;; Verifica o personagem importado no editor nativo e a edição da mesma malha viva.
+(load (merge-pathnames "bootstrap.lisp" (or *load-truename* *compile-file-truename*)))
+(asdf:load-system :sgeo/examples/animation)
+(load (merge-pathnames "m5-acceptance-common.lisp" (uiop:pathname-directory-pathname *load-truename*)))
+
+(defun m5-viewport-pixels ()
+  "Lê apenas o viewport, excluindo alterações de texto e cursor da comparação."
+  (let* ((state sgeo.editor.opengl::*active-ui-state*)
+         (rect (sgeo.editor.opengl::editor-ui-viewport-rect state))
+         (height (sgeo.editor.opengl::editor-ui-height state)))
+    (gl:read-pixels (first rect) (- height (second rect) (fourth rect))
+                    (third rect) (fourth rect) :rgba :unsigned-byte)))
+
+(defun m5-changed-pixels (a b)
+  (loop for offset from 0 below (length a) by 4
+        count (loop for channel below 3 thereis (/= (aref a (+ offset channel)) (aref b (+ offset channel))))))
+
+(defun m5-ui-click-action (window kind)
+  "Aciona um controle visível pelos callbacks da janela, sem chamar seu comando diretamente."
+  (let* ((state sgeo.editor.opengl::*active-ui-state*)
+         (hit (find-if (lambda (entry) (eq (first (fifth entry)) kind))
+                       (sgeo.editor.opengl::editor-ui-hits state))))
+    (m5-check hit (format nil "controle da linha do tempo: ~S" kind))
+    (funcall (sgeo.backend.opengl::%cursor-handler window)
+             (+ (first hit) (/ (third hit) 2d0)) (+ (second hit) (/ (fourth hit) 2d0)))
+    (funcall (sgeo.backend.opengl::%mouse-button-handler window) :left :press nil)
+    (funcall (sgeo.backend.opengl::%mouse-button-handler window) :left :release nil)))
+
+(defun run-m5-acceptance ()
+  "Reproduz, redefine comportamento, edita fontes, recupera falhas e grava o ativo vivo."
+  (multiple-value-bind (editor asset) (sgeo.examples.animation:make-animation-editor :playing-p nil)
+    (let* ((world (sgeo.editor:editor-world editor))
+           (object (aref (sgeo.gltf:gltf-meshes asset) 0))
+           (mesh (sg:mesh-object-geometry object))
+           (clip (sgeo.editor:editor-animation-clip editor))
+           (track (or (find-if (lambda (track)
+                                (and (typep track 'sg:property-track)
+                                     (eq :rotation (first (sg:track-path track)))
+                                     (search "arm" (sg:object-name (sg:track-target track)))))
+                              (sg:clip-tracks clip))
+                      (find-if (lambda (track) (typep (sg:sample-track track 0d0) 'sg:quaternion))
+                               (sg:clip-tracks clip))))
+           (sampler (symbol-function 'sg:sample-track))
+           (baseline nil) (animated nil) (edited nil) (uploads 0) (finished nil)
+           (scene (merge-pathnames "artifacts/m5-acceptance.sgeo" *project-root*))
+           (expected (merge-pathnames "artifacts/m5-acceptance.expected.lisp" *project-root*)))
+      (m5-check (typep object 'sg:deformable-mesh-object) "personagem importado tem skin viva")
+      (m5-check (plusp (length (sg:skeleton-joints (sg:mesh-skeleton object)))) "juntas importadas")
+      (m5-check (> (length (sg:clip-tracks clip)) 3) "canais de animação importados")
+      (unwind-protect
+           (multiple-value-bind (returned report)
+               (sgeo.editor.opengl:run-editor editor :width 1280 :height 800 :visible nil
+                 :repl nil :max-frames 12 :capture-path (merge-pathnames "artifacts/m5-editor.ppm" *project-root*)
+                 :frame-hook
+                 (lambda (current window renderer frame)
+                   (m5-check (eq current editor) "mesmo editor vivo")
+                   (m5-check (eq mesh (sg:mesh-object-geometry object)) "mesma malha de origem")
+                   (case frame
+                     (0
+                      (setf (sgeo.editor.opengl::editor-ui-workspace-tool sgeo.editor.opengl::*active-ui-state*) :timeline)
+                      (sgeo.editor:scrub-animation editor 0d0))
+                     (1
+                      (setf baseline (m5-viewport-pixels) uploads (sgeo.render:renderer-upload-count renderer))
+                      (m5-check (> (length (remove-duplicates baseline)) 4) "personagem visível no framebuffer")
+                      (sgeo.editor:execute-editor-command editor :play)
+                      (sgeo.editor:advance-editor-time editor 0.4d0)
+                      (sgeo.editor:execute-editor-command editor :pause))
+                     (2
+                      (setf animated (m5-viewport-pixels))
+                      (m5-check (> (m5-changed-pixels baseline animated) 20) "reprodução alterou pixels do personagem")
+                      (m5-check (> (sgeo.render:renderer-upload-count renderer) uploads) "pose atualizou cache de GPU")
+                      (sgeo.backend.opengl:capture-framebuffer-ppm window (merge-pathnames "artifacts/m5-animated.ppm" *project-root*))
+                      (setf (symbol-function 'sg:sample-track)
+                            (lambda (current time)
+                              (let ((value (funcall sampler current time)))
+                                (if (eq current track)
+                                    (sg:quaternion-multiply value (sg:quaternion-from-axis-angle #(0d0 0d0 1d0) 0.7d0)) value))))
+                      (sgeo.editor:scrub-animation editor (sgeo.editor:editor-time editor)))
+                     (3
+                      (setf edited (m5-viewport-pixels))
+                      (m5-check (> (m5-changed-pixels animated edited) 10) "redefinição Lisp alterou o personagem existente")
+                      (setf (symbol-function 'sg:sample-track) sampler)
+                      (sgeo.editor:scrub-animation editor (sgeo.editor:editor-time editor))
+                      (let ((positions (sg:mesh-positions mesh)))
+                        (dotimes (i 6)
+                          (sg:set-mesh-position mesh i
+                            (sg:v+ (subseq positions (* 3 i) (+ (* 3 i) 3)) #(0d0 0d0 0.12d0)))))
+                      (setf (sgeo.editor:editor-animation-track editor) track))
+                     (4
+                      (m5-check (> (m5-changed-pixels animated (m5-viewport-pixels)) 0) "edição da fonte foi exibida")
+                      (let ((positions (sg:mesh-positions mesh)) (keys (sg:track-keys track)) (failed nil))
+                        (handler-case
+                            (sgeo.editor:with-edit-transaction (editor "Failed imported edit")
+                              (sg:set-mesh-position mesh 0 #(99d0 99d0 99d0))
+                              (sg:set-track-keys track (list (list 0d0 (sg:make-quaternion))))
+                              (error "Falha intencional da edição."))
+                          (error () (setf failed t)))
+                        (m5-check failed "falha exercitada")
+                        (m5-check (equalp positions (sg:mesh-positions mesh)) "falha recuperou geometria")
+                        (m5-check (m5-close-enough-p (mapcar #'first keys) (mapcar #'first (sg:track-keys track))) "falha recuperou chaves"))
+                      (m5-ui-click-action window :timeline-scrub))
+                     (5
+                      (m5-check (not (sgeo.editor:editor-playing-p editor)) "scrubbing da UI mantém pausa")
+                      (sgeo.editor:add-animation-key editor :track track :time 0.234d0)
+                      (m5-ui-click-action window :timeline-key-step))
+                     (6
+                      (m5-ui-click-action window :timeline-loop)
+                      (sgeo.editor:undo-edit editor)
+                      (sgeo.editor:redo-edit editor))
+                     (7
+                      (sgeo.editor:scrub-animation editor 0.75d0)
+                      (sgeo.editor:execute-editor-command editor :save :path scene)
+                      (m5-write-evidence world expected)
+                      (sgeo.editor:export-editor-gltf editor (merge-pathnames "artifacts/m5-export.glb" *project-root*) :binary t)
+                      (sgeo.editor:export-editor-gltf editor (merge-pathnames "artifacts/m5-export.gltf" *project-root*))
+                      (setf finished t))
+                     (9
+                      (m5-check finished "cena animada gravada")
+                      (m5-check (>= (getf (sgeo.render:renderer-info renderer) :gpu-meshes) 1) "cache de GPU permanece válido")))))
+             (declare (ignore returned))
+             (m5-check finished "demonstração alcançou todos os passos")
+             (m5-check (null (sgeo.runtime:runtime-report-render-error report)) "quadros sem erro de renderização")
+             (m5-check (null (sgeo.runtime:runtime-report-platform-error report)) "janela sem erro")
+             (format t "~&M5 editor: ~D quadros, ~D uploads; reprodução, redefinição, edição, rollback e timeline verificados.~%"
+                     (sgeo.runtime:runtime-report-frames report) (sgeo.runtime:runtime-report-uploads report)))
+        (setf (symbol-function 'sg:sample-track) sampler))
+      (let ((checker (merge-pathnames "tools/m5-reopen-check.lisp" *project-root*)))
+        (multiple-value-bind (output errors code)
+            (uiop:run-program (list "sbcl" "--dynamic-space-size" "4096" "--script" (namestring checker)
+                                    (namestring scene) (namestring expected))
+                              :output :string :error-output :string :ignore-error-status t)
+          (write-string output)
+          (m5-check (zerop code) (format nil "reabertura em SBCL novo: ~A" errors)))))))
+
+(handler-case (progn (run-m5-acceptance) (uiop:quit 0))
+  (error (condition) (format *error-output* "~&Falha na aceitação M5: ~A~%" condition) (uiop:quit 1)))

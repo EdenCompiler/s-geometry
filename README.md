@@ -1,22 +1,20 @@
 # S-Geometry/CL
 
-S-Geometry/CL is a 3D modeling environment written in Common Lisp, inspired by Symbolics' S-Geometry.
+S-Geometry/CL is a 3D modeler written in Common Lisp, inspired by [S-Geometry on the Symbolics Lisp machines](docs/original-s-geometry-summary.md). It brings polygon editing and Lisp programming into the same environment.
 
-You can build and edit polygon meshes through the editor, through Lisp, or with a mixture of both. The viewport and listener share the same objects: a mesh you select on screen is the mesh your Lisp code changes. You can redefine a modeling function and try it on that mesh without reopening the scene.
+You can select vertices, edges, and faces in the viewport, then edit them through the menus or the Lisp listener. Both work on the same objects. Redefine a modeling function while the editor is running and try it on the mesh already in front of you.
 
-The editor has perspective and orthographic views, vertex/edge/face selection, an inspector, undo and redo, and scene saving. The geometry kernel supports orientable manifold solids and open surfaces.
+The project is under development on Linux with SBCL. The [roadmap](docs/roadmap.md) records what's working and what comes next.
 
-Development is on Linux with SBCL. The editor uses OpenGL. A separate Vulkan viewer supports PBR materials, shadows, and shaders written in Lisp. The [roadmap](docs/roadmap.md) records what's finished and what's still planned.
+## Getting started
 
-## Run it
-
-You'll need SBCL, Quicklisp, the GLFW and FreeType shared libraries, and a display with OpenGL 3.3 support. Development currently uses SBCL 2.5.2. With Quicklisp loaded at the SBCL prompt, install the Lisp dependencies:
+You'll need SBCL, Quicklisp, GLFW, FreeType, and a display with OpenGL 3.3 support. The development environment uses SBCL 2.5.2. At a Lisp prompt with Quicklisp loaded, install the dependencies:
 
 ```lisp
-(ql:quickload '(:bordeaux-threads :cl-glfw3 :cl-opengl :cffi :cl-freetype2 :fiveam))
+(ql:quickload '(:bordeaux-threads :cl-glfw3 :cl-opengl :cffi :cl-freetype2 :yason :fiveam))
 ```
 
-Clone the repository and open the editor:
+Then clone the repository and start the editor:
 
 ```bash
 git clone https://github.com/EdenCompiler/s-geometry.git
@@ -24,34 +22,35 @@ cd s-geometry
 sbcl --script tools/run.lisp
 ```
 
-The editor opens with an editable box. The launcher loads `~/quicklisp/setup.lisp` if it exists. `tools/editor.lisp` is an alias for the same launcher.
-
-For the Vulkan viewer, see the [shader and renderer notes](docs/m4-implementation.md) for dependencies, then run:
-
-```bash
-sbcl --dynamic-space-size 4096 --script tools/pbr-viewer.lisp
-```
+You'll get a box to start editing. The launcher loads `~/quicklisp/setup.lisp` when present; `tools/editor.lisp` opens the same editor.
 
 ## In the editor
 
-Choose object, vertex, edge, face, or region selection in the toolbar, then click in the viewport. Modeling operations are in the menus; numeric values can be edited in the inspector. Shift-click adds or removes faces from a region selection.
+Use the toolbar to choose what you're selecting: objects, vertices, edges, faces, or face regions. Click in the viewport, then choose an operation from the menus or edit a value in the inspector. In face-region mode, Shift-click adds or removes faces. Perspective, front, top, and side views are available.
 
-Alt + left drag orbits the camera, middle drag pans, and the wheel zooms. Right-click opens the context menu. Ctrl+Z and Ctrl+Y undo and redo edits.
+| Action | Control |
+| --- | --- |
+| Orbit | Alt + left drag |
+| Pan | Middle drag |
+| Zoom | Mouse wheel |
+| Open the context menu | Right-click |
+| Undo / redo | Ctrl+Z / Ctrl+Y |
+| Evaluate listener input | Ctrl+Enter |
 
-The File menu saves to `scene.sgeo` by default. To use another path or reopen a saved scene:
+The File menu saves to `scene.sgeo` by default. You can choose a different save path at startup, or reopen a scene:
 
 ```bash
 sbcl --script tools/run.lisp --scene my-scene.sgeo
 sbcl --script tools/run.lisp --open my-scene.sgeo
 ```
 
-Run `sbcl --script tools/run.lisp --help` for the other launcher options.
+Other startup options are listed by `sbcl --script tools/run.lisp --help`.
 
 ## Working in Lisp
 
-The listener at the bottom of the editor evaluates Lisp in the running image. Enter adds a line and Ctrl+Enter evaluates the input. `sg:*world*` holds the current world; `sg:*selection*` holds the selected object.
+The listener at the bottom of the editor has access to the running world through `sg:*world*` and the selected object through `sg:*selection*`. Enter adds a line; Ctrl+Enter evaluates the input.
 
-For example, move the default box and extrude one of its faces:
+For example, this moves the starting box and extrudes a face:
 
 ```lisp
 (defparameter *box* (sg:find-object sg:*world* "EditableBox"))
@@ -61,9 +60,9 @@ For example, move the default box and extrude one of its faces:
 (sg:extrude-face *mesh* (first (sg:mesh-faces *mesh*)) :distance 0.25d0)
 ```
 
-The editor uses these same operations. A failed geometry edit leaves the last valid mesh intact, so you can correct the call and keep working.
+These are the same operations the editor calls. If a geometry edit fails, the mesh keeps its last valid state.
 
-To start from an existing Lisp session, replace the path below with your checkout:
+You can also open the editor from an existing Lisp session:
 
 ```lisp
 (load "/path/to/s-geometry/tools/bootstrap.lisp")
@@ -71,25 +70,39 @@ To start from an existing Lisp session, replace the path below with your checkou
 (sg:open-editor (sg:make-world))
 ```
 
-Call `open-editor` from the main thread. Load `:sgeo` for geometry work without a window, or `:sgeo/editor` for editor commands and scene persistence without the graphical interface.
+Replace `/path/to/s-geometry` with your checkout and call `open-editor` from the main thread. For geometry work without a window, load `:sgeo`. The kernel handles orientable manifold solids and open surfaces.
+
+## Animation and rendering
+
+To open a glTF or GLB model in the editor:
+
+```bash
+sbcl --script tools/run.lisp --import model.glb
+```
+
+Workspace → Timeline lets you play clips, scrub through poses, and edit keys. The animation and geometry share the editor's undo history and scene files. There's a small rigged character to try:
+
+```bash
+sbcl --script tools/animation-editor.lisp
+```
+
+The [animation guide](docs/animation.md) covers tracks, blending, skeletons, and glTF import and export.
+
+The editor uses OpenGL. A separate Vulkan viewer has PBR materials, shadows, and shaders written in Lisp. See the [renderer notes](docs/m4-implementation.md) for its dependencies before running:
+
+```bash
+sbcl --dynamic-space-size 4096 --script tools/pbr-viewer.lisp
+```
 
 ## Tests and examples
 
-The core tests run without a display:
+Run the tests without a display:
 
 ```bash
 sbcl --script tools/test.lisp
 ```
 
-The editor checks need a display and an OpenGL context:
-
-```bash
-sbcl --script tools/editor-acceptance.lisp
-sbcl --script tools/editor-ui-smoke.lisp
-sbcl --script tools/editor-selection-native.lisp
-```
-
-To run the scene examples:
+The scene examples have their own launcher:
 
 ```bash
 sbcl --script tools/demo.lisp
@@ -97,4 +110,4 @@ sbcl --script tools/demo.lisp --triangle
 sbcl --script tools/demo.lisp --kernel
 ```
 
-The [editor implementation notes](docs/m3-implementation.md) describe what the checks cover. For the internals, see the [design document](docs/modern-s-geometry-design.md) and [geometry-kernel specification](docs/sgeo-geometry-kernel-spec.md). The [original S-Geometry summary](docs/original-s-geometry-summary.md) gives some background on the system that inspired this project.
+For native editor checks, see the [editor notes](docs/m3-implementation.md). The [design document](docs/modern-s-geometry-design.md) describes the architecture, and the [kernel specification](docs/sgeo-geometry-kernel-spec.md) covers mesh storage and editing rules.

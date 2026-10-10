@@ -8,7 +8,7 @@
   (hits nil) (popup nil) (popup-hits nil) (popup-x 0) (popup-y 0) (popup-width 198)
   (focus :viewport) (listener-string "") (field-edit nil) (field-string "")
   (mouse-x 0d0) (mouse-y 0d0) (last-x 0d0) (last-y 0d0)
-  (left-down nil) (camera-motion nil) (drag-gizmo nil) (drag-origin nil)
+  (left-down nil) (camera-motion nil) (timeline-drag nil) (drag-gizmo nil) (drag-origin nil)
   (drag-start-position nil) (drag-start-transform nil)
   (drag-start-x 0d0) (drag-start-y 0d0)
   (drag-current-x 0d0) (drag-current-y 0d0)
@@ -54,14 +54,14 @@
 (defun %ui-hit (state x y width height action)
   (push (list x y width height action) (editor-ui-hits state)))
 
-(defun %ui-button (state x y width height label action &key selected-p (compact-p nil))
+(defun %ui-button (state x y width height label action &key selected-p (compact-p nil) (text-scale 1d0))
   (let ((renderer (editor-ui-ui-renderer state)))
     (sgeo.backend.opengl:ui-rect renderer x y width height
                                  (%color (if selected-p :panel-selected :panel-raised)))
     (sgeo.backend.opengl:ui-rect renderer x y width height (%color :border) :filled-p nil)
     (sgeo.backend.opengl:ui-text renderer (+ x (if compact-p 6 9)) (+ y 6)
-                                 (%clip-text renderer label (- width (if compact-p 12 18)))
-                                 (%color :text))
+                                 (%clip-text renderer label (- width (if compact-p 12 18)) text-scale)
+                                 (%color :text) :scale text-scale)
     (%ui-hit state x y width height action)))
 
 (defun %safe-ui-action (state function)
@@ -149,6 +149,11 @@
             (setf (editor-ui-focus state) :inspector
                   (editor-ui-field-edit state) (cons :rename 0)
                   (editor-ui-field-string state) (sgeo.core:object-name object))))
+         (:gltf-path
+          (setf (editor-ui-show-inspector-p state) t
+                (editor-ui-focus state) :inspector
+                (editor-ui-field-edit state) (cons (second action) 0)
+                (editor-ui-field-string state) (if (eq (second action) :import-gltf) "model.gltf" "scene.glb")))
          (:clear-selection (sgeo.editor:editor-select editor nil nil))
          (:gizmo (setf (editor-ui-focus state) :viewport))
          (:profile (setf (sgeo.editor:editor-layout editor) :inspection))
@@ -199,6 +204,8 @@
           (menus (list
                   (list "File" (list (list "Save scene" (list :command :save :path (sgeo.editor:editor-scene-path editor)))
                                      (list "Open scene" (list :command :open :path (sgeo.editor:editor-scene-path editor)))
+                                     (list "Import glTF..." (list :gltf-path :import-gltf))
+                                     (list "Export GLB..." (list :gltf-path :export-gltf))
                                      (list "Close editor" (list :close))))
                   (list "Create" (list (list "Box" (list :command :create :kind :box))
                                        (list "Sphere" (list :command :create :kind :sphere))
@@ -795,6 +802,7 @@
       (:middle (setf (editor-ui-camera-motion state) (if pressed :pan nil)))
       (:left
        (setf (editor-ui-left-down state) pressed)
+       (unless pressed (setf (editor-ui-timeline-drag state) nil))
        (if pressed
            (cond
              ((editor-ui-popup state)
@@ -808,7 +816,9 @@
               (let ((hit (find-if (lambda (item) (%rect-contains-p x y item))
                                   (editor-ui-hits state))))
                 (cond
-                  (hit (%dispatch-action state (fifth hit)))
+                  (hit (when (eq (first (fifth hit)) :timeline-scrub)
+                         (setf (editor-ui-timeline-drag state) (fifth hit)))
+                       (%dispatch-action state (fifth hit)))
                   ((%viewport-contains-p state x y)
                    (if (%mod-p mods :alt)
                        (setf (editor-ui-camera-motion state) :orbit)
@@ -838,14 +848,16 @@
 
 (defun %commit-inspector-field (state)
   (let* ((target (editor-ui-field-edit state))
-         (value (if (and target (eq (car target) :rename))
+         (value (if (and target (member (car target) '(:rename :import-gltf :export-gltf)))
                     (editor-ui-field-string state)
                     (%parse-ui-number (editor-ui-field-string state)))))
     (when target
-      (if (eq (car target) :rename)
-          (%command state :rename :name value)
-          (sgeo.editor:set-inspector-number (editor-ui-editor state) (car target) value
-                                            :axis (cdr target))))
+      (case (car target)
+        (:rename (%command state :rename :name value))
+        (:import-gltf (%command state :import-gltf :path value))
+        (:export-gltf (%command state :export-gltf :path value :binary t))
+        (otherwise (sgeo.editor:set-inspector-number (editor-ui-editor state) (car target) value
+                                                    :axis (cdr target)))))
     (setf (editor-ui-field-edit state) nil (editor-ui-focus state) :viewport)))
 
 (defun %key-press (state key action mods)
@@ -912,6 +924,9 @@
     (setf (editor-ui-last-x state) old-x (editor-ui-last-y state) old-y
           (editor-ui-mouse-x state) x (editor-ui-mouse-y state) y)
     (cond
+      ((editor-ui-timeline-drag state)
+       (%safe-ui-action state
+         (lambda () (%dispatch-workspace-action state (editor-ui-timeline-drag state)))))
       ((editor-ui-drag-gizmo state)
        (setf (editor-ui-drag-current-x state) x (editor-ui-drag-current-y state) y)
        (%safe-ui-action state (lambda () (%preview-gizmo-drag state))))

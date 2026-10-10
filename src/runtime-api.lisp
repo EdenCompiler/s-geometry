@@ -1,9 +1,9 @@
 ;; A fachada gráfica acrescenta suas operações quando o sistema runtime é carregado.
 (uiop:define-package #:sgeo
-  (:use #:cl #:sgeo.core #:sgeo.math #:sgeo.geometry #:sgeo.scene #:sgeo.runtime)
+  (:use #:cl #:sgeo.core #:sgeo.math #:sgeo.geometry #:sgeo.scene #:sgeo.animation #:sgeo.runtime)
   (:nicknames #:sg)
-  (:reexport #:sgeo.core #:sgeo.math #:sgeo.geometry #:sgeo.scene #:sgeo.runtime)
-  (:export #:run))
+  (:reexport #:sgeo.core #:sgeo.math #:sgeo.geometry #:sgeo.scene #:sgeo.animation #:sgeo.runtime)
+  (:export #:run #:*world* #:*selection*))
 
 ;; A carga tardia do runtime preserva as exportações opcionais já instaladas.
 (dolist (name '("OPEN-EDITOR" "MAKE-EDITOR" "*EDITOR*" "EXECUTE-EDITOR-COMMAND"

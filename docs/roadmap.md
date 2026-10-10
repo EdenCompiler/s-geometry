@@ -8,7 +8,7 @@ The first target is **Linux with SBCL**, using **cl-glfw3, cl-opengl and CFFI** 
 
 The architecture is described in [Modern S-Geometry in Pure Common Lisp](modern-s-geometry-design.md). This roadmap preserves its M0–M8 milestone numbering and divides M3 into an initial editor and later expansion.
 
-**Implementation status:** M0, M1, M2, M3a, M3b and M4 are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). See [M4 verification evidence](m4-implementation.md) for the shader compiler and Vulkan viewer. M5–M8 remain **Not started**.
+**Implementation status:** M0, M1, M2, M3a, M3b, M4 and M5 are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). See [M4 verification evidence](m4-implementation.md) for the shader compiler and Vulkan viewer, and [M5 verification evidence](m5-implementation.md) for animation and glTF. M6–M8 remain **Not started**.
 
 Architectural commitments:
 
@@ -107,7 +107,7 @@ The first kernel supports **orientable manifold solids and open surfaces**, with
 
 ## Later milestones
 
-These milestones are **outside the first usable release**. M3b extends the editor and M4 adds the modern renderer; both are complete. M5–M8 remain future goals. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
+These milestones are **outside the first usable release**. M3b extends the editor, M4 adds the modern renderer, and M5 adds animation and glTF interchange; all three are complete. M6–M8 remain future goals. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
 
 ### M3b — Editor expansion
 
@@ -121,7 +121,7 @@ These milestones are **outside the first usable release**. M3b extends the edito
 
 **Exit criterion:** The initial editor grows into a broader live development workspace while retaining equivalent Lisp operations for GUI actions.
 
-**Verification:** Nine CPU gizmo cases pass, covering translation, rotation, scale, cancellation, zero-distance drags, transformed parents, groups, triangle meshes, and retired selections. Workspace checks cover panel configuration, scrolling, scene-clock controls, and rolling profiling samples. A 50-frame native UI demonstration verifies menus, inspector navigation, multiline listener input, gizmo dragging, workspace tools, panel configuration, and resizing; a second window verifies popup rendering and cleanup. The timeline controls the current scene clock; animation tracks and keyframes remain M5 work.
+**Verification:** Nine CPU gizmo cases pass, covering translation, rotation, scale, cancellation, zero-distance drags, transformed parents, groups, triangle meshes, and retired selections. Workspace checks cover panel configuration, scrolling, scene-clock controls, and rolling profiling samples. A 50-frame native UI demonstration verifies menus, inspector navigation, multiline listener input, gizmo dragging, workspace tools, panel configuration, and resizing; a second window verifies popup rendering and cleanup. M5 extends the scene-clock view with animation tracks and keyframes.
 
 ### M4 — Shader Lisp and modern renderer
 
@@ -140,16 +140,18 @@ These milestones are **outside the first usable release**. M3b extends the edito
 
 ### M5 — Animation and asset interoperability
 
-**Status:** Not started. **Release:** Later.
+**Status:** Complete. **Release:** Later.
 
-- [ ] Implement property animation tracks and interpolation.
-- [ ] Add a timeline editor.
-- [ ] Implement skeletons, skinning, and animation blending.
-- [ ] Add glTF interoperability, including animated model import.
-- [ ] Demonstrate live modification of an imported animated character.
-- [ ] Pass animation and glTF interoperability tests.
+- [x] Implement property animation tracks and interpolation.
+- [x] Add a timeline editor.
+- [x] Implement skeletons, skinning, and animation blending.
+- [x] Add glTF interoperability, including animated model import.
+- [x] Demonstrate live modification of an imported animated character.
+- [x] Pass animation and glTF interoperability tests.
 
 **Exit criterion:** An imported animated character plays and can be modified live.
+
+**Verification:** 1,898 headless checks pass without skips or failures. The 12-frame OpenGL demonstration verifies playback, Lisp redefinition on the existing character, source geometry edits, failed-edit recovery, timeline interaction, undo/redo, and equivalent scene reopening in a fresh SBCL process. A six-frame Vulkan check verifies deformation and source edits without validation messages. Character glTF/GLB exports and the reopened export have zero Khronos validator errors. Image and texture data are preserved for interchange; the viewers currently use material factors. See the [M5 implementation and verification notes](m5-implementation.md).
 
 ### M6 — Simulation and game layer
 

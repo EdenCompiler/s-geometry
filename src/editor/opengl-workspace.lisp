@@ -146,36 +146,77 @@
                                    "Amostras recentes em ms" (%color :muted)))))
 
 (defun %draw-workspace-timeline (state rect)
+  "Desenha clipes e chaves vivos; o cursor amostra os mesmos objetos de animação."
   (let* ((editor (editor-ui-editor state))
          (renderer (editor-ui-ui-renderer state))
-         (x (+ (first rect) 10)) (y (+ (second rect) 38))
+         (data (sgeo.editor:timeline-data editor))
+         (clip (getf data :clip)) (track (getf data :track))
+         (x (+ (first rect) 10)) (y (+ (second rect) 35))
          (width (max 1 (- (third rect) 20)))
-         (time (sgeo.editor:editor-time editor))
-         (maximum (max 10d0 (* 1d0 (ceiling time 10d0))))
-         (fraction (min 1d0 (/ time maximum))))
-    (%workspace-heading state rect "Relógio da cena")
-    (%workspace-text state rect 0 (format nil "Tempo: ~A s   Velocidade: ~Ax"
-                                          (%workspace-number time)
-                                          (%workspace-number (sgeo.editor:editor-time-scale editor))))
-    (%workspace-text state rect 1
-                     (if (sgeo.editor:editor-playing-p editor)
-                         "Estado: em reprodução" "Estado: pausado")
-                     (%color :muted))
-    (%ui-button state x (+ y 42) 62 26 "Play"
-                (list :workspace-clock :play)
-                :selected-p (sgeo.editor:editor-playing-p editor) :compact-p t)
-    (%ui-button state (+ x 65) (+ y 42) 62 26 "Pausa"
-                (list :workspace-clock :pause) :compact-p t)
-    (%ui-button state (+ x 130) (+ y 42) 62 26 "Passo"
-                (list :workspace-clock :step) :compact-p t)
-    (%ui-button state x (+ y 71) 90 26 "Lento"
-                (list :workspace-clock :slower) :compact-p t)
-    (%ui-button state (+ x 94) (+ y 71) 90 26 "Rápido"
-                (list :workspace-clock :faster) :compact-p t)
-    (sgeo.backend.opengl:ui-rect renderer x (+ y 104) width 12 (%color :panel-raised))
-    (sgeo.backend.opengl:ui-rect renderer x (+ y 104) (* width fraction) 12 (%color :accent))
-    (sgeo.backend.opengl:ui-text renderer x (+ y 122)
-                                 "A posição acompanha o relógio da cena." (%color :muted))))
+         (duration (max 0.001d0 (getf data :duration)))
+         (time (getf data :time)) (tracks (getf data :tracks)))
+    (%workspace-heading state rect "Animation timeline")
+    (sgeo.backend.opengl:ui-text renderer x y
+      (%clip-text renderer (if clip (princ-to-string (or (slot-value clip 'sgeo.animation::name) "Clip"))
+                              "No animation clips") width) (%color :accent))
+    (%ui-button state x (+ y 21) 50 25 "Play" '(:workspace-clock :play) :compact-p t :text-scale 0.8d0
+                :selected-p (sgeo.editor:editor-playing-p editor))
+    (%ui-button state (+ x 53) (+ y 21) 60 25 "Pause" '(:workspace-clock :pause) :compact-p t :text-scale 0.8d0)
+    (%ui-button state (+ x 116) (+ y 21) 50 25 "Step" '(:workspace-clock :step) :compact-p t :text-scale 0.8d0)
+    (%ui-button state x (+ y 50) 58 25 "0.5x" '(:workspace-clock :slower)
+                :compact-p t :text-scale 0.8d0)
+    (%ui-button state (+ x 61) (+ y 50) 58 25 "2x" '(:workspace-clock :faster)
+                :compact-p t :text-scale 0.8d0)
+    (sgeo.backend.opengl:ui-text renderer (+ x 124) (+ y 56)
+      (format nil "~,1Fx" (sgeo.editor:editor-time-scale editor)) (%color :muted) :scale 0.8d0)
+    (if (null clip)
+        (progn
+          (%ui-button state x (+ y 82) width 26 "Animate position"
+                      '(:command :animation-create))
+          (sgeo.backend.opengl:ui-text renderer x (+ y 117) "File: Import glTF" (%color :muted)))
+        (let* ((ruler-y (+ y 115)) (rows-y (+ ruler-y 27))
+               (count (max 1 (floor (- (fourth rect) 238) 27)))
+               (selected (or (position track tracks) 0))
+               (start (* count (floor selected count)))
+               (player (getf data :player)))
+          (%ui-button state x (+ y 78) 48 25 "Clip" '(:timeline-next-clip) :compact-p t :text-scale 0.8d0)
+          (%ui-button state (+ x 50) (+ y 78) 48 25 "Key+" '(:command :animation-record) :compact-p t :text-scale 0.8d0)
+          (%ui-button state (+ x 100) (+ y 78) 40 25 "Del" '(:command :animation-delete) :compact-p t :text-scale 0.8d0)
+          (%ui-button state (+ x 142) (+ y 78) 48 25 "Loop" '(:timeline-loop) :compact-p t :text-scale 0.8d0
+                      :selected-p (and player (sgeo.animation:player-looping-p player)))
+          (sgeo.backend.opengl:ui-rect renderer x ruler-y width 20 (%color :panel-raised))
+          (%ui-hit state x ruler-y width 20 (list :timeline-scrub x width duration))
+          (dotimes (i 3)
+            (let ((tick-x (+ x (* width (/ i 2d0)))))
+              (sgeo.backend.opengl:ui-line renderer tick-x ruler-y tick-x (+ ruler-y 5) (%color :muted))
+              (sgeo.backend.opengl:ui-text renderer (min (+ x width -30) tick-x) (+ ruler-y 6)
+                 (format nil "~,1F" (* duration (/ i 2d0))) (%color :muted) :scale 0.8d0)))
+          (loop for item in (subseq tracks start (min (length tracks) (+ start count)))
+                for row from 0 for row-y = (+ rows-y (* row 27)) do
+             (sgeo.backend.opengl:ui-rect renderer x row-y width 24
+                (%color (if (eq item track) :panel-selected :panel-raised)))
+             (%ui-hit state x row-y width 24 (list :timeline-track item))
+             (when (typep item 'sgeo.animation:property-track)
+               (sgeo.backend.opengl:ui-text renderer x row-y
+                  (%clip-text renderer (format nil "~A ~S"
+                     (let ((target (sgeo.animation:track-target item)))
+                       (if (typep target 'sgeo.core:sgeo-object) (sgeo.core:object-name target)
+                           (princ-to-string (class-name (class-of target)))))
+                     (sgeo.animation:track-path item)) width) (%color :muted))
+               (loop for key in (sgeo.animation:track-keys item) for index from 0
+                     for key-x = (+ x (* width (/ (first key) duration))) do
+                  (sgeo.backend.opengl:ui-rect renderer (- key-x 3) (+ row-y 16) 7 7
+                     (%color (if (and (eq item track) (eql index (getf data :key))) :accent :text)))
+                  (%ui-hit state (- key-x 5) (+ row-y 13) 11 11 (list :timeline-key item index))))
+             (sgeo.backend.opengl:ui-line renderer (+ x (* width (min 1d0 (/ time duration)))) row-y
+                (+ x (* width (min 1d0 (/ time duration)))) (+ row-y 24) (%color :accent)))
+          (let ((controls-y (+ rows-y (* count 27) 4)))
+            (%ui-button state x controls-y 32 24 "<" '(:timeline-track-step -1) :compact-p t :text-scale 0.8d0)
+            (%ui-button state (+ x 35) controls-y 32 24 ">" '(:timeline-track-step 1) :compact-p t :text-scale 0.8d0)
+            (%ui-button state (+ x 70) controls-y 56 24 "-0.1" '(:timeline-key-step -0.1d0) :compact-p t :text-scale 0.8d0)
+            (%ui-button state (+ x 129) controls-y 56 24 "+0.1" '(:timeline-key-step 0.1d0) :compact-p t :text-scale 0.8d0)
+            (sgeo.backend.opengl:ui-text renderer x (+ controls-y 29)
+               (format nil "~,3F / ~,3F s" time duration) (%color :muted)))))))
 
 (defun %draw-workspace-layout (state rect)
   (let* ((x (+ (first rect) 10)) (y (+ (second rect) 40))
@@ -269,6 +310,40 @@
              (editor-ui-show-listener-p state) t
              (editor-ui-workspace-tool state) nil)
        t)
+      (:timeline-next-clip
+       (let* ((clips (getf (sgeo.editor:timeline-data editor) :clips))
+              (index (or (position (sgeo.editor:editor-animation-clip editor) clips) 0)))
+         (when clips (sgeo.editor:select-animation-clip editor (nth (mod (1+ index) (length clips)) clips)))) t)
+      (:timeline-track
+       (setf (sgeo.editor:editor-animation-track editor) (second action)
+             (sgeo.editor:editor-animation-key editor) nil
+             (sgeo.editor:editor-inspected editor) (second action)) t)
+      (:timeline-key
+       (let* ((track (second action)) (index (third action))
+              (key (nth index (sgeo.animation:track-keys track))))
+         (setf (sgeo.editor:editor-animation-track editor) track
+               (sgeo.editor:editor-animation-key editor) index)
+         (sgeo.editor:scrub-animation editor (first key))) t)
+      (:timeline-scrub
+       (destructuring-bind (kind x width duration) action
+         (declare (ignore kind))
+         (sgeo.editor:scrub-animation editor (* duration (max 0d0 (min 1d0 (/ (- (editor-ui-mouse-x state) x) width)))))) t)
+      (:timeline-loop
+       (let ((player (sgeo.editor:editor-animation-player editor)))
+         (when player (setf (sgeo.animation:player-looping-p player)
+                            (not (sgeo.animation:player-looping-p player))))) t)
+      (:timeline-track-step
+       (let* ((tracks (getf (sgeo.editor:timeline-data editor) :tracks))
+              (index (or (position (sgeo.editor:editor-animation-track editor) tracks) 0)))
+         (when tracks (setf (sgeo.editor:editor-animation-track editor)
+                            (nth (mod (+ index (second action)) (length tracks)) tracks)
+                            (sgeo.editor:editor-animation-key editor) nil))) t)
+      (:timeline-key-step
+       (let* ((track (sgeo.editor:editor-animation-track editor))
+              (index (sgeo.editor:editor-animation-key editor)))
+         (when (and track index)
+           (sgeo.editor:move-animation-key editor
+             (max 0d0 (+ (first (nth index (sgeo.animation:track-keys track))) (second action)))))) t)
       (:workspace-clock
        (case (second action)
          (:play (sgeo.editor:execute-editor-command editor :play))

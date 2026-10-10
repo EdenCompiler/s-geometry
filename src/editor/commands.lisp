@@ -142,8 +142,22 @@
     (lambda ()
       (case name
         (:undo (undo-edit editor)) (:redo (redo-edit editor))
-        (:play (setf (editor-playing-p editor) t))
-        (:pause (setf (editor-playing-p editor) nil))
+        (:play (%ensure-timeline-selection editor)
+               (when (editor-animation-player editor)
+                 (setf (sgeo.animation:player-playing-p (editor-animation-player editor)) t))
+               (setf (editor-playing-p editor) t))
+        (:pause (when (editor-animation-player editor)
+                  (setf (sgeo.animation:player-playing-p (editor-animation-player editor)) nil))
+                (setf (editor-playing-p editor) nil))
+        (:animation-select (select-animation-clip editor (getf arguments :clip)))
+        (:animation-seek (scrub-animation editor (getf arguments :time)))
+        (:animation-create (apply #'create-editor-animation editor arguments))
+        (:animation-record (apply #'add-animation-key editor arguments))
+        (:animation-delete (apply #'delete-animation-key editor arguments))
+        (:animation-move (move-animation-key editor (getf arguments :time)
+                                            :index (or (getf arguments :index) (editor-animation-key editor))))
+        (:import-gltf (import-editor-gltf editor (getf arguments :path)))
+        (:export-gltf (export-editor-gltf editor (getf arguments :path) :binary (getf arguments :binary)))
         (:step (advance-editor-time editor (getf arguments :dt (/ 1d0 60d0)) :force t))
         (:time-scale (setf (editor-time-scale editor)
                            (%editor-time-number (getf arguments :value) t)))
@@ -169,6 +183,8 @@
                        (editor-elements editor) nil (editor-selection-mode editor) :object
                        (editor-inspected editor) (sgeo.scene:world-root loaded)
                        (%inspect-stack editor) nil (editor-time editor) 0d0 (editor-playing-p editor) nil
+                       (editor-animation-clip editor) nil (editor-animation-track editor) nil
+                       (editor-animation-key editor) nil (editor-animation-player editor) nil
                        (editor-status editor) (format nil "Opened: ~A" path)
                        sgeo:*world* loaded sgeo:*selection* (sgeo.scene:world-selection loaded)) loaded))
         (:api (let ((function (getf arguments :function)))

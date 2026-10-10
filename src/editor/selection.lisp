@@ -17,8 +17,7 @@
 (defun %editor-visible-bounds (world)
   (let ((minimum nil) (maximum nil))
     (dolist (object (%editor-world-meshes world))
-      (let* ((geometry (sgeo.scene:mesh-object-geometry object))
-             (data (sgeo.core:compile-render-data geometry))
+      (let* ((data (sgeo.scene:render-data-for-object object))
              (positions (sgeo.geometry:render-mesh-positions data))
              (matrix (sgeo.scene:world-transform object)))
         (loop for offset from 0 below (length positions) by 3

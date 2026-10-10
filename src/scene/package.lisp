@@ -18,7 +18,9 @@
                 #:render-mesh-revision)
   (:export
    #:world #:make-world #:world-root #:world-camera #:world-selection
-   #:world-running-p #:world-lock #:with-world-lock #:scene-object #:make-scene-object
+   #:world-running-p #:world-lock #:with-world-lock #:world-animation-state
+   #:update-world-animations #:render-data-for-object #:render-cache-key
+   #:scene-object #:make-scene-object
    #:scene-object-parent #:scene-object-children #:scene-object-local-transform
    #:scene-object-visible-p #:scene-object-enabled-p #:scene-object-world
    #:mesh-object #:make-mesh-object #:mesh-object-geometry #:mesh-object-material

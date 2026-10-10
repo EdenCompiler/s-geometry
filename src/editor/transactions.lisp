@@ -10,6 +10,7 @@
                                   :scale (copy-seq (sgeo.math:transform-scale value))))
         (sgeo.math:quaternion
          (apply #'sgeo.math:make-quaternion (coerce (sgeo.math::quaternion-data value) 'list)))
+        (string (copy-seq value))
         (cons (let ((copy (cons nil nil)))
                 (setf (gethash value seen) copy
                       (car copy) (%snapshot-value (car value) seen)
@@ -19,7 +20,9 @@
            (setf (gethash value seen) copy)
            (maphash (lambda (key item) (setf (gethash (%snapshot-value key seen) copy)
                                           (%snapshot-value item seen))) value) copy))
-        (array (let ((copy (make-array (array-dimensions value) :element-type (array-element-type value))))
+        (array (let ((copy (make-array (array-dimensions value) :element-type (array-element-type value)
+                                      :adjustable (adjustable-array-p value)
+                                      :fill-pointer (when (array-has-fill-pointer-p value) (fill-pointer value)))))
                  (setf (gethash value seen) copy)
                  (dotimes (index (array-total-size value) copy)
                    (setf (row-major-aref copy index) (%snapshot-value (row-major-aref value index) seen)))))
@@ -34,7 +37,9 @@
                               sgeo.core::observers sgeo.geometry::state sgeo.geometry::kernel-lock
                               sgeo.geometry::data-lock sgeo.geometry::positions
                               sgeo.geometry::normals sgeo.geometry::indices sgeo.geometry::bounds
-                              sgeo.scene::lock))
+                              sgeo.scene::lock sgeo.animation::cached-key
+                              sgeo.animation::cached-data sgeo.animation::deformation-revision
+                              sgeo.animation::deformation-lock))
         when (slot-boundp object name)
         collect (list name (%snapshot-value (slot-value object name))))
   #-sbcl
@@ -44,7 +49,21 @@
   (destructuring-bind (object slots) record
     (dolist (entry slots)
       (setf (slot-value object (first entry)) (%snapshot-value (second entry))))
-    (sgeo.core:touch-object object :snapshot-restored)))
+    (when (typep object 'sgeo.core:sgeo-object)
+      (sgeo.core:touch-object object :snapshot-restored))))
+
+(defun %capture-editor-animations (editor)
+  "Captura o estado de animação sem clonar alvos nem a representação do projeto."
+  (let* ((state (sgeo.scene:world-animation-state (editor-world editor)))
+         (clips (when state (sgeo.animation:animation-state-clips state)))
+         (items (when state
+                  (remove-duplicates
+                   (append (list state) clips (sgeo.animation:animation-state-players state)
+                           (mapcan (lambda (clip) (copy-list (sgeo.animation:clip-tracks clip))) clips))
+                   :test #'eq))))
+    (list state (mapcar (lambda (item) (list item (%capture-slots item))) items)
+          (editor-animation-clip editor) (editor-animation-track editor)
+          (editor-animation-key editor) (editor-animation-player editor) (editor-time editor))))
 
 (defun capture-editor-snapshot (editor)
   "Captura o estado autoritativo completo, sem copiar caches de GPU."
@@ -60,6 +79,7 @@
       (make-editor-snapshot
        :root (sgeo.scene:world-root world) :camera (sgeo.scene:world-camera world)
        :selection (sgeo.scene:world-selection world)
+       :animations (%capture-editor-animations editor)
        :records (mapcar (lambda (object) (list object (%capture-slots object))) objects)
        :materials (mapcar (lambda (material) (list material (%capture-slots material))) materials)
        :meshes (mapcar (lambda (mesh)
@@ -117,6 +137,13 @@
                 (slot-value world 'sgeo.scene::camera) (editor-snapshot-camera snapshot))
           (mapc #'%restore-slots (editor-snapshot-records snapshot))
           (mapc #'%restore-slots (editor-snapshot-materials snapshot))
+          (destructuring-bind (state records clip track key player time)
+              (editor-snapshot-animations snapshot)
+            (setf (sgeo.scene:world-animation-state world) state
+                  (editor-animation-clip editor) clip (editor-animation-track editor) track
+                  (editor-animation-key editor) key (editor-animation-player editor) player
+                  (editor-time editor) time)
+            (mapc #'%restore-slots records))
           (dolist (entry (editor-snapshot-meshes snapshot))
             (destructuring-bind (mesh slots data) entry
               (dolist (slot slots) (setf (slot-value mesh (first slot)) (%snapshot-value (second slot))))

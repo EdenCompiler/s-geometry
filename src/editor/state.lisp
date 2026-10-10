@@ -31,13 +31,17 @@
    (profile :initform nil :accessor editor-profile)
    (time :initform 0d0 :accessor editor-time)
    (playing-p :initform nil :accessor editor-playing-p)
-   (time-scale :initform 1d0 :accessor editor-time-scale))
+   (time-scale :initform 1d0 :accessor editor-time-scale)
+   (animation-clip :initform nil :accessor editor-animation-clip)
+   (animation-track :initform nil :accessor editor-animation-track)
+   (animation-key :initform nil :accessor editor-animation-key)
+   (animation-player :initform nil :accessor editor-animation-player))
   (:documentation "Vistas, comandos e histórico sobre o mesmo mundo Lisp vivo."))
 (defstruct editor-request function result condition done-p
   (lock (bt:make-lock "sgeo owner request"))
   (ready (bt:make-condition-variable)))
 (defstruct (editor-command (:conc-name command-)) name arguments label form before after)
-(defstruct editor-snapshot root camera selection records meshes materials)
+(defstruct editor-snapshot root camera selection records meshes materials animations)
 
 (defun make-editor (&key world (scene-path "scene.sgeo"))
   "Cria o estado do editor sem carregar bibliotecas gráficas."
@@ -106,6 +110,15 @@
                   sgeo.scene:set-camera-eye sgeo.scene:set-camera-target sgeo.scene:set-camera-up
                   sgeo.scene:set-camera-projection sgeo.scene:set-camera-frame
                   sgeo.scene:orbit-camera sgeo.scene:pan-camera sgeo.scene:zoom-camera
+                  sgeo.animation:set-track-keys sgeo.animation:play-animation
+                  sgeo.animation:seek-animation sgeo.animation:stop-animation
+                  sgeo.animation:add-animation-clip sgeo.animation:set-morph-weights
+                  sgeo.animation:solve-ik
+                  (setf sgeo.animation:track-keys) (setf sgeo.animation:clip-tracks)
+                  (setf sgeo.animation:clip-duration) (setf sgeo.animation:player-weight)
+                  (setf sgeo.animation:player-speed) (setf sgeo.animation:player-playing-p)
+                  (setf sgeo.animation:player-looping-p) (setf sgeo.animation:player-mask)
+                  (setf sgeo.animation:player-additive-p)
                   (setf sgeo.core:object-name) (setf sgeo.core:object-metadata)
                   (setf sgeo.scene:world-selection) (setf sgeo.scene:scene-object-visible-p)
                   (setf sgeo.scene:scene-object-enabled-p) (setf sgeo.scene:mesh-object-material)
@@ -176,8 +189,18 @@
         (when (or force (editor-playing-p editor))
           (let ((scaled (* dt (%editor-time-number (editor-time-scale editor) t))))
             (handler-case
-                (progn (sgeo.scene:update-world (editor-world editor) scaled)
-                       (incf (editor-time editor) scaled))
+                (let* ((player (editor-animation-player editor))
+                       (playing (and player (sgeo.animation:player-playing-p player))))
+                  (unwind-protect
+                       (progn
+                         (when (and player force (not playing))
+                           (setf (sgeo.animation:player-playing-p player) t))
+                         (sgeo.scene:update-world (editor-world editor) scaled)
+                         (if player
+                             (setf (editor-time editor) (sgeo.animation:player-time player))
+                             (incf (editor-time editor) scaled)))
+                    (when (and player force (not playing))
+                      (setf (sgeo.animation:player-playing-p player) nil))))
               (error (condition)
                 (setf (editor-playing-p editor) nil
                       (editor-status editor) (format nil "Update failed: ~A" condition))

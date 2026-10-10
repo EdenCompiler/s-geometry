@@ -192,7 +192,7 @@
 (defun %entry-value (entry key &optional default)
   (getf entry key default))
 (defun %mesh-for-entry (renderer entry)
-  (let* ((geometry (%entry-value entry :geometry))
+  (let* ((geometry (or (%entry-value entry :render-key) (%entry-value entry :geometry)))
          (revision (%entry-value entry :revision))
          (cached (and geometry (gethash geometry (%mesh-cache renderer)))))
     (if (and cached (eql revision (gpu-mesh-revision cached)))

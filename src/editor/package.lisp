@@ -6,6 +6,10 @@
    #:editor-layout #:editor-tool #:editor-inspected #:editor-status #:editor-history
    #:editor-running-p #:editor-scene-path #:editor-listener-input #:editor-listener-output
    #:editor-profile #:editor-time #:editor-playing-p #:editor-time-scale #:advance-editor-time
+   #:editor-animation-clip #:editor-animation-track #:editor-animation-key
+   #:editor-animation-player #:timeline-data #:select-animation-clip
+   #:scrub-animation #:add-animation-key #:delete-animation-key #:move-animation-key
+   #:create-editor-animation #:import-editor-gltf #:export-editor-gltf
    #:editor-select #:editor-objects #:set-editor-view #:set-editor-layout
    #:execute-editor-command #:replay-editor-command #:editor-command #:command-name
    #:command-arguments #:command-label #:command-form
