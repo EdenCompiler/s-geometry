@@ -4,7 +4,8 @@
            #:framebuffer-size #:window-should-close-p #:request-window-close
            #:swap-buffers #:close-window #:window-title #:set-window-title
            #:set-key-handler #:set-cursor-handler #:set-scroll-handler
-           #:set-mouse-button-handler #:set-character-handler #:set-close-handler #:window-time
+           #:set-mouse-button-handler #:set-character-handler #:set-close-handler #:set-focus-handler
+           #:window-gamepad-state #:window-time
            #:window-error #:window-visible-p #:window-cursor-position
            #:escape-event-p #:press-event-p #:mouse-button-kind #:wireframe-event-p
            #:with-native-graphics-environment))
@@ -31,6 +32,8 @@
 (defgeneric set-mouse-button-handler (window function))
 (defgeneric set-close-handler (window function))
 (defgeneric set-character-handler (window function))
+(defgeneric set-focus-handler (window function))
+(defgeneric window-gamepad-state (window))
 (defgeneric window-time (window))
 (defgeneric window-cursor-position (window))
 (defgeneric escape-event-p (key action))

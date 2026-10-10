@@ -8,6 +8,8 @@
    (scroll-handler :initform nil :accessor %scroll-handler)
    (mouse-button-handler :initform nil :accessor %mouse-button-handler)
    (character-handler :initform nil :accessor %character-handler)
+   (focus-handler :initform nil :accessor %focus-handler)
+   (focused-p :initarg :focused-p :initform t :accessor %focused-p)
    (close-handler :initform nil :accessor %close-handler)))
 
 (defvar *glfw-lock* (bt:make-lock "sgeo GLFW"))
@@ -93,6 +95,10 @@
   (%dispatch-callback native #'%close-handler nil))
 (glfw:def-char-callback %dispatch-character-callback (native codepoint)
   (%dispatch-callback native #'%character-handler (list codepoint)))
+(glfw:def-window-focus-callback %dispatch-focus-callback (native focused-p)
+  (let ((window (gethash (%native-key native) *glfw-windows*)))
+    (when window (setf (%focused-p window) focused-p)))
+  (%dispatch-callback native #'%focus-handler (list focused-p)))
 
 (defun %register-window-callbacks (window)
   (let ((native (glfw-native-window window)))
@@ -104,6 +110,7 @@
     (glfw:set-mouse-button-callback '%dispatch-mouse-button-callback native)
     (glfw:set-window-close-callback '%dispatch-close-callback native))
   (glfw:set-char-callback '%dispatch-character-callback (glfw-native-window window))
+  (glfw:set-window-focus-callback '%dispatch-focus-callback (glfw-native-window window))
   window)
 
 (defun %unregister-window-callbacks (window)
@@ -142,6 +149,7 @@
           (glfw:swap-interval (if visible 1 0))
           (initialize-opengl-backend)
           (setf window (make-instance 'glfw-window :native native :title title
+                                      :focused-p (glfw:get-window-attribute :focused native)
                                       :visible-p visible))
           (%register-window-callbacks window)
           (setf registered t)
@@ -224,3 +232,28 @@
 (defmethod sgeo.platform:set-character-handler ((window glfw-window) function)
   (setf (%character-handler window) function)
   window)
+
+(defmethod sgeo.platform:set-focus-handler ((window glfw-window) function)
+  (setf (%focus-handler window) function) window)
+
+;;; GLFWgamepadstate possui quinze bytes de botões e seis floats de eixos.
+(cffi:defcstruct native-gamepad-state
+  (buttons (:array :unsigned-char 15)) (axes (:array :float 6)))
+(cffi:defcfun ("glfwGetGamepadState" %get-gamepad-state) :int
+  (joystick :int) (state :pointer))
+(defmethod sgeo.platform:window-gamepad-state ((window glfw-window))
+  (when (%focused-p window)
+    (cffi:with-foreign-object (state '(:struct native-gamepad-state))
+      (loop for joystick below 16 when (= 1 (%get-gamepad-state joystick state)) do
+        (let ((buttons (cffi:foreign-slot-pointer state '(:struct native-gamepad-state) 'buttons))
+              (axes (cffi:foreign-slot-pointer state '(:struct native-gamepad-state) 'axes)))
+          (return (list :buttons
+                    (loop for name in '(:a :b :x :y :left-bumper :right-bumper :back :start :guide
+                                        :left-thumb :right-thumb :dpad-up :dpad-right :dpad-down :dpad-left)
+                          for i from 0 when (= 1 (cffi:mem-aref buttons :unsigned-char i)) collect name)
+                    :axes (loop for name in '(:left-x :left-y :right-x :right-y :left-trigger :right-trigger)
+                                for i from 0
+                                for value = (cffi:mem-aref axes :float i)
+                                collect (cons name (if (>= i 4)
+                                                       (max 0d0 (min 1d0 (/ (+ value 1d0) 2d0)))
+                                                       value))))))))))

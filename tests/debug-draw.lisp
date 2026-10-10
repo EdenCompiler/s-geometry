@@ -1,0 +1,68 @@
+(in-package #:sgeo.tests)
+(in-suite sgeo-suite)
+
+(test debug-draw-copies-command-data-and-keeps-batches-transient
+  (let* ((world (sgeo.scene:make-world))
+         (start (vector 0d0 0d0 0d0))
+         (finish (vector 1d0 0d0 0d0)))
+    (sgeo.debug:debug-line world start finish :color #(0.9d0 0.2d0 0.1d0))
+    ;; A fila não deve observar alterações feitas pelo chamador depois do enqueue.
+    (setf (aref start 0) 99d0 (aref finish 0) 99d0)
+    (let* ((first-entry (first (getf (sgeo.scene:render-snapshot world) :objects)))
+           (object (getf first-entry :object))
+           (geometry (getf first-entry :geometry))
+           (revision (getf first-entry :revision)))
+      (is (= 1 (length (getf (sgeo.scene:render-snapshot world) :objects))))
+      (is (null (sgeo.scene:scene-object-parent object)))
+      (is (null (sgeo.scene:scene-object-world object)))
+      (is (null (sgeo.scene:world-selection world)))
+      (is (< (aref (getf first-entry :positions) 0) 2d0))
+      ;; Extrair o mesmo quadro não invalida a geometria cacheada.
+      (let ((again (first (getf (sgeo.scene:render-snapshot world) :objects))))
+        (is (eq geometry (getf again :geometry)))
+        (is (= revision (getf again :revision))))
+      (sgeo.debug:debug-line world #(0d0 0d0 0d0) #(0d0 1d0 0d0)
+                             :color #(0.9d0 0.2d0 0.1d0))
+      (let ((updated (first (getf (sgeo.scene:render-snapshot world) :objects))))
+        (is (eq geometry (getf updated :geometry)))
+        (is (> (getf updated :revision) revision))))))
+
+(test debug-draw-aabb-sphere-and-bitmap-text-extract-triangles
+  (let ((world (sgeo.scene:make-world)))
+    (sgeo.debug:debug-aabb world
+                           (sgeo.math:make-aabb #(0d0 0d0 0d0) #(1d0 2d0 3d0)))
+    (sgeo.debug:debug-sphere world #(0d0 0d0 0d0) 0.5d0)
+    (sgeo.debug:debug-text world #(0d0 0d0 0d0) "A1")
+    (is (= 3 (sgeo.debug:debug-command-count world)))
+    (let* ((entries (getf (sgeo.scene:render-snapshot world) :objects))
+           (text-entry (find #(1d0 1d0 1d0) entries
+                             :key (lambda (entry) (getf entry :color))
+                             :test #'equalp)))
+      (is (= 3 (length entries)))
+      (is (every (lambda (entry)
+                   (and (> (length (getf entry :positions)) 0)
+                        (> (length (getf entry :indices)) 0)
+                        (= 0 (mod (length (getf entry :indices)) 3))))
+                 entries))
+      ;; A1 possui pixels acesos; cada pixel vira dois triângulos voltados à câmera.
+      (is (and text-entry (> (length (getf text-entry :indices)) 30))))))
+
+(test debug-draw-lifetimes-advance-only-at-update-boundaries
+  (let ((world (sgeo.scene:make-world)))
+    (sgeo.debug:debug-line world #(0d0 0d0 0d0) #(1d0 0d0 0d0)
+                           :color #(1d0 0d0 0d0))
+    (sgeo.debug:debug-line world #(0d0 0d0 0d0) #(0d0 1d0 0d0)
+                           :color #(0d0 1d0 0d0) :duration 0.75d0)
+    (sgeo.debug:debug-line world #(0d0 0d0 0d0) #(0d0 0d0 1d0)
+                           :color #(0d0 0d0 1d0) :duration -1)
+    (is (= 3 (sgeo.debug:debug-command-count world)))
+    (is (= 3 (length (getf (sgeo.scene:render-snapshot world) :objects))))
+    ;; Repetir a extração não consome o comando de um quadro.
+    (is (= 3 (length (getf (sgeo.scene:render-snapshot world) :objects))))
+    (sgeo.scene:update-world world 0.25d0)
+    (is (= 2 (sgeo.debug:debug-command-count world)))
+    (sgeo.scene:update-world world 1d0)
+    (is (= 1 (sgeo.debug:debug-command-count world)))
+    (sgeo.debug:clear-debug-draw world)
+    (is (= 0 (sgeo.debug:debug-command-count world)))
+    (is (null (getf (sgeo.scene:render-snapshot world) :objects)))))

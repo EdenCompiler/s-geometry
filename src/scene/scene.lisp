@@ -39,6 +39,8 @@
    (running-p :initarg :running-p :initform nil :reader %world-running-p)
    (selection :initform nil :accessor %world-selection)
    (animation-state :initform nil :accessor world-animation-state)
+   (simulation-state :initform nil :accessor world-simulation-state)
+   (debug-state :initform nil :accessor world-debug-state)
    (lock :initform (bt:make-recursive-lock "sgeo world") :reader world-lock))
   (:documentation "Cena compartilhada protegida por um bloqueio reentrante."))
 
@@ -878,13 +880,27 @@
                        near-point (camera-eye camera))))
       (make-ray origin (normalize (v- far-point origin))))))
 
+(defun update-scene-objects (world dt)
+  "Atualiza objetos habilitados sem executar fases de simulação ou animação."
+  (dolist (object (adjoin (world-camera world) (%descendants (world-root world)) :test #'eq))
+    (when (%enabled-chain-p object) (update-object object world dt))))
+
+(defgeneric advance-scene-frame (world state dt)
+  (:documentation "Executa um quadro com o estado opcional de simulação."))
+(defmethod advance-scene-frame ((world world) (state null) dt)
+  (update-scene-objects world dt)
+  (update-world-animations world dt))
+
+(defgeneric additional-render-entries (world)
+  (:documentation "Extrai diagnósticos temporários sem anexar objetos à cena."))
+(defmethod additional-render-entries ((world world)) (declare (ignore world)) nil)
+
 (defun update-world (world dt)
-  "Atualiza todos os objetos habilitados da hierarquia em ordem de percurso."
+  "Avança as fases do mundo sob o bloqueio compartilhado da cena."
+  (unless (and (realp dt) (handler-case (<= 0 dt most-positive-double-float) (error () nil)))
+    (error 'validation-error :context "relógio do mundo" :message "DT precisa ser finito e não negativo."))
   (with-world-lock (world)
-    (dolist (object (adjoin (world-camera world) (%descendants (world-root world)) :test #'eq))
-      (when (%enabled-chain-p object)
-        (update-object object world dt)))
-    (update-world-animations world dt))
+    (advance-scene-frame world (world-simulation-state world) dt))
   world)
 
 (defun %render-entries (object parent-visible-p parent-enabled-p)
@@ -912,7 +928,8 @@
   "Extrai uma visão consistente e sem recursos gráficos dos dados do mundo."
   (with-world-lock (world)
     (let ((camera (world-camera world)))
-      (list :objects (%render-entries (world-root world) t t)
+      (list :objects (append (%render-entries (world-root world) t t)
+                             (additional-render-entries world))
             :view-matrix (view-matrix camera)
             :projection-matrix (projection-matrix camera aspect)
             :camera camera

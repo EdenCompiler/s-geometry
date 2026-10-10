@@ -1,0 +1,197 @@
+(in-package #:sgeo.tests)
+
+(defclass test-audio-offset-effect ()
+  ((offset :initarg :offset :reader test-audio-offset)))
+
+(defmethod sgeo.audio:process-audio-effect
+    ((effect test-audio-offset-effect) samples channels frames sample-rate)
+  (declare (ignore sample-rate))
+  (dotimes (i (* channels frames) samples)
+    (incf (aref samples i) (test-audio-offset effect))))
+
+(defun %audio-buffer-values (buffer)
+  (coerce (sgeo.audio:audio-buffer-samples buffer) 'list))
+
+(def-suite audio-suite :in sgeo-suite :description "Mixer PCM e objetos de áudio headless.")
+(in-suite audio-suite)
+
+(test audio-buffer-copies-data-and-tone-is-deterministic
+  (let* ((input (vector 0.25d0 -0.5d0))
+         (buffer (sgeo.audio:make-audio-buffer :samples input :sample-rate 8000 :channels 1))
+         (tone (sgeo.audio:make-tone-buffer 2000 0.0005d0 :sample-rate 8000
+                                             :amplitude 1d0)))
+    (setf (aref input 0) 0d0)
+    (is (equal (%audio-buffer-values buffer) '(0.25d0 -0.5d0)))
+    (is (= (sgeo.audio:audio-buffer-frame-count tone) 4))
+    (is (approximately= (aref (sgeo.audio:audio-buffer-samples tone) 1) 1d0))))
+
+(test offline-mixer-mixes-mono-to-stereo-and-clips
+  (let* ((mixer (sgeo.audio:make-audio-mixer :sample-rate 8000))
+         (buffer (sgeo.audio:make-audio-buffer :samples #(0.8d0 0.8d0) :sample-rate 8000))
+         (a (sgeo.audio:make-audio-source :buffer buffer))
+         (b (sgeo.audio:make-audio-source :buffer buffer)))
+    (sgeo.audio:add-audio-source mixer a)
+    (sgeo.audio:add-audio-source mixer b)
+    (sgeo.audio:play-source a) (sgeo.audio:play-source b)
+    (let ((samples (sgeo.audio:mixer-render mixer 2)))
+      (is (= (length samples) 4))
+      (is (every (lambda (x) (= x 1d0)) samples)))
+    (is (eq (sgeo.audio:source-state a) :finished))))
+
+(test stereo-buffer-preserves-channels
+  (let* ((mixer (sgeo.audio:make-audio-mixer :sample-rate 8000))
+         (buffer (sgeo.audio:make-audio-buffer :samples #(0.2d0 -0.4d0)
+                                               :sample-rate 8000 :channels 2))
+         (source (sgeo.audio:make-audio-source :buffer buffer)))
+    (sgeo.audio:add-audio-source mixer source) (sgeo.audio:play-source source)
+    (let ((samples (sgeo.audio:mixer-render mixer 1)))
+      (is (approximately= (aref samples 0) 0.2d0))
+      (is (approximately= (aref samples 1) -0.4d0)))))
+
+(test live-scene-parents-control-source-position-and-pan
+  (let* ((mixer (sgeo.audio:make-audio-mixer :sample-rate 8000))
+         (parent (sgeo.scene:make-scene-object :position #(0d0 0d0 0d0)))
+         (node (sgeo.scene:make-scene-object :position #(0d0 0d0 0d0)))
+         (buffer (sgeo.audio:make-audio-buffer :samples #(0.6d0) :sample-rate 8000))
+         (source (sgeo.audio:make-audio-source :buffer buffer :object node)))
+    (sgeo.scene:add-child parent node)
+    (sgeo.audio:add-audio-source mixer source) (sgeo.audio:play-source source)
+    (let ((first (sgeo.audio:mixer-render mixer 1)))
+      (is (approximately= (aref first 0) (aref first 1))))
+    (sgeo.scene:set-position parent #(2d0 0d0 0d0))
+    (sgeo.audio:stop-source source) (sgeo.audio:play-source source)
+    (let ((moved (sgeo.audio:mixer-render mixer 1)))
+      (is (zerop (aref moved 0)))
+      (is (approximately= (aref moved 1) 0.3d0)))))
+
+(test pause-stop-loop-pitch-and-frame-boundaries
+  (let* ((mixer (sgeo.audio:make-audio-mixer :sample-rate 2))
+         (buffer (sgeo.audio:make-audio-buffer :samples #(0.25d0 0.5d0 0.75d0)
+                                               :sample-rate 2))
+         (source (sgeo.audio:make-audio-source :buffer buffer :pitch 2d0)))
+    (sgeo.audio:add-audio-source mixer source) (sgeo.audio:play-source source)
+    (let ((first (sgeo.audio:mixer-render mixer 1)))
+      (is (approximately= (aref first 0) 0.25d0)))
+    (sgeo.audio:pause-source source)
+    (is (eq (sgeo.audio:source-state source) :paused))
+    (is (every #'zerop (sgeo.audio:mixer-render mixer 1)))
+    (sgeo.audio:play-source source)
+    (let ((second (sgeo.audio:mixer-render mixer 1)))
+      (is (approximately= (aref second 0) 0.75d0)))
+    (is (eq (sgeo.audio:source-state source) :finished))
+    (sgeo.audio:stop-source source)
+    (is (eq (sgeo.audio:source-state source) :stopped))
+    (setf (sgeo.audio:audio-source-pitch source) 1d0
+          (sgeo.audio:audio-source-looping-p source) t)
+    (sgeo.audio:play-source source)
+    (let ((looped (sgeo.audio:mixer-render mixer 4)))
+      (is (equal (loop for i from 0 below 8 by 2 collect (aref looped i))
+                 '(0.25d0 0.5d0 0.75d0 0.25d0)))
+      (is (eq (sgeo.audio:source-state source) :playing)))))
+
+(test stream-refills-and-pitch-skips-source-frames
+  (let* ((calls 0)
+         (stream (sgeo.audio:make-audio-stream
+                  :sample-rate 4 :channels 1
+                  :refill-function
+                  (lambda (ignored)
+                    (declare (ignore ignored))
+                    (incf calls)
+                    (when (= calls 1)
+                      (sgeo.audio:make-audio-buffer :samples #(0.1d0 0.2d0 0.3d0 0.4d0)
+                                                    :sample-rate 4)))))
+         (mixer (sgeo.audio:make-audio-mixer :sample-rate 2))
+         (source (sgeo.audio:make-audio-source :stream stream)))
+    (sgeo.audio:add-audio-source mixer source) (sgeo.audio:play-source source)
+    (let ((rendered (sgeo.audio:mixer-render mixer 2)))
+      (is (approximately= (aref rendered 0) 0.1d0))
+      (is (approximately= (aref rendered 2) 0.3d0)))
+    (is (= (sgeo.audio:stream-refill-count stream) 1))))
+
+(test bus-gain-effect-chain-and-resource-release
+  (let* ((mixer (sgeo.audio:make-audio-mixer :sample-rate 8000))
+         (bus (sgeo.audio:make-audio-bus :gain 0.5d0))
+         (buffer (sgeo.audio:make-audio-buffer :samples #(0.2d0) :sample-rate 8000))
+         (source (sgeo.audio:make-audio-source :buffer buffer :bus bus)))
+    (sgeo.audio:add-audio-effect bus (make-instance 'test-audio-offset-effect :offset 0.2d0))
+    (sgeo.audio:add-audio-source mixer source) (sgeo.audio:play-source source)
+    (let ((rendered (sgeo.audio:mixer-render mixer 1)))
+      (is (approximately= (aref rendered 0) 0.2d0))
+      (is (approximately= (aref rendered 1) 0.2d0)))
+    (sgeo.audio:close-audio-mixer mixer)
+    (is (eq (sgeo.audio:source-state source) :stopped))
+    (signals error (sgeo.audio:mixer-render mixer 1))))
+
+(test wav-writes-little-endian-pcm16-header
+  (let* ((path (merge-pathnames "sgeo-audio-test.wav" (uiop:temporary-directory)))
+         (samples #(-1d0 0d0 1d0)))
+    (unwind-protect
+         (progn
+           (sgeo.audio:write-wav path samples :sample-rate 8000 :channels 1)
+           (with-open-file (in path :direction :input :element-type '(unsigned-byte 8))
+             (let ((bytes (make-array 46 :element-type '(unsigned-byte 8))))
+               (read-sequence bytes in)
+               (is (equalp (subseq bytes 0 4) #(82 73 70 70)))
+               (is (equalp (subseq bytes 8 12) #(87 65 86 69)))
+               (is (equalp (subseq bytes 44 46) #(0 128)))))
+      (when (probe-file path) (delete-file path))))))
+
+(test public-audio-setters-reject-invalid-numbers-atomically
+  (let* ((mixer (sgeo.audio:make-audio-mixer))
+         (buffer (sgeo.audio:make-audio-buffer :samples #(0.25d0)))
+         (source (sgeo.audio:make-audio-source :buffer buffer :gain 0.5d0 :pitch 1.5d0
+                                                :position #(1d0 2d0 3d0)))
+         (bus (sgeo.audio:make-audio-bus :gain 0.75d0))
+         (listener (sgeo.audio:make-listener))
+         (nan (sb-kernel:make-double-float #x7ff80000 0))
+         (infinity sb-ext:double-float-positive-infinity))
+    (dolist (bad (list -1d0 nan infinity))
+      (signals error (setf (sgeo.audio:audio-source-gain source) bad))
+      (is (= (sgeo.audio:audio-source-gain source) 0.5d0))
+      (signals error (setf (sgeo.audio:audio-bus-gain bus) bad))
+      (is (= (sgeo.audio:audio-bus-gain bus) 0.75d0)))
+    (dolist (bad (list 0d0 -1d0 nan infinity))
+      (signals error (setf (sgeo.audio:audio-source-pitch source) bad))
+      (is (= (sgeo.audio:audio-source-pitch source) 1.5d0)))
+    (dolist (bad (list #(0d0 nan 0d0) #(0d0 infinity 0d0)))
+      (signals error (setf (sgeo.audio:audio-source-position source) bad))
+      (is (equalp (sgeo.audio:audio-source-position source) #(1d0 2d0 3d0))))
+    ;; A posição devolvida não permite contornar o setter validado.
+    (setf (aref (sgeo.audio:audio-source-position source) 0) 99d0)
+    (is (= (sgeo.math:vx (sgeo.audio:audio-source-position source)) 1d0))
+    (setf (sgeo.audio:mixer-listener mixer) listener)
+    (signals error (setf (sgeo.audio:mixer-listener mixer) :invalid))
+    (is (eq (sgeo.audio:mixer-listener mixer) listener))))
+
+(test released-buffer-fails-explicitly-before-loop-modulo
+  (let* ((mixer (sgeo.audio:make-audio-mixer :sample-rate 8000))
+         (buffer (sgeo.audio:make-audio-buffer :samples #(0.1d0 0.2d0 0.3d0)
+                                               :sample-rate 8000))
+         (source (sgeo.audio:make-audio-source :buffer buffer :looping-p t)))
+    (sgeo.audio:add-audio-source mixer source)
+    (sgeo.audio:play-source source)
+    (is (approximately= (aref (sgeo.audio:mixer-render mixer 1) 0) 0.1d0))
+    (sgeo.audio:close-audio-buffer buffer)
+    (signals sgeo.audio::audio-resource-error (sgeo.audio:mixer-render mixer 1))
+    (is (eq (sgeo.audio:source-state source) :finished))
+    (signals sgeo.audio::audio-resource-error (sgeo.audio:make-audio-source :buffer buffer))))
+
+(test released-buffer-cannot-be-started-and-stream-looping-is-explicitly-unsupported
+  (let* ((buffer (sgeo.audio:make-audio-buffer :samples #(0.1d0 0.2d0)))
+         (source (sgeo.audio:make-audio-source :buffer buffer))
+         (stream (sgeo.audio:make-audio-stream :sample-rate 44100)))
+    (sgeo.audio:close-audio-buffer buffer)
+    (signals sgeo.audio::audio-resource-error (sgeo.audio:play-source source))
+    (is (eq (sgeo.audio:source-state source) :stopped))
+    (signals error (sgeo.audio:make-audio-source :stream stream :looping-p t))))
+
+(test consumed-forward-stream-does-not-pretend-to-rewind
+  (let* ((buffer (sgeo.audio:make-audio-buffer :samples #(0.4d0)))
+         (stream (sgeo.audio:make-audio-stream :buffers (list buffer)))
+         (mixer (sgeo.audio:make-audio-mixer))
+         (source (sgeo.audio:make-audio-source :stream stream)))
+    (sgeo.audio:add-audio-source mixer source)
+    (sgeo.audio:play-source source)
+    (is (approximately= (aref (sgeo.audio:mixer-render mixer 2) 0) 0.4d0))
+    (is (eq (sgeo.audio:source-state source) :finished))
+    (signals sgeo.audio::audio-resource-error (sgeo.audio:play-source source))))

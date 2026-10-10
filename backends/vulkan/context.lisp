@@ -3,10 +3,12 @@
 (defclass vulkan-window (sgeo.platform:platform-window)
   ((native :initarg :native :reader %vulkan-window-native)
    (closed-p :initform nil :accessor %vulkan-window-closed-p)
+   (focused-p :initarg :focused-p :initform t :accessor %vulkan-focused-p)
    (key-handler :initform nil :accessor %vulkan-key-handler)
    (cursor-handler :initform nil :accessor %vulkan-cursor-handler)
    (scroll-handler :initform nil :accessor %vulkan-scroll-handler)
    (mouse-button-handler :initform nil :accessor %vulkan-mouse-button-handler)
+   (focus-handler :initform nil :accessor %vulkan-focus-handler)
    (character-handler :initform nil :accessor %vulkan-character-handler)
    (close-handler :initform nil :accessor %vulkan-close-handler)))
 
@@ -64,6 +66,11 @@
 (glfw:def-mouse-button-callback %vulkan-mouse-button-callback (native button action mods)
   (%dispatch-window-callback native #'%vulkan-mouse-button-handler
                              (list button action mods)))
+(glfw:def-window-focus-callback %vulkan-focus-callback (native focused-p)
+  (let ((window (bt:with-lock-held (*vulkan-glfw-lock*)
+                  (gethash (%window-key native) *vulkan-windows*))))
+    (when window (setf (%vulkan-focused-p window) focused-p)))
+  (%dispatch-window-callback native #'%vulkan-focus-handler (list focused-p)))
 (glfw:def-char-callback %vulkan-character-callback (native codepoint)
   (%dispatch-window-callback native #'%vulkan-character-handler (list codepoint)))
 (glfw:def-window-close-callback %vulkan-close-callback (native)
@@ -77,6 +84,7 @@
     (glfw:set-cursor-position-callback '%vulkan-cursor-callback native)
     (glfw:set-scroll-callback '%vulkan-scroll-callback native)
     (glfw:set-mouse-button-callback '%vulkan-mouse-button-callback native)
+    (glfw:set-window-focus-callback '%vulkan-focus-callback native)
     (glfw:set-window-close-callback '%vulkan-close-callback native)
     (glfw:set-char-callback '%vulkan-character-callback native))
   window)
@@ -121,7 +129,8 @@
         (let* ((native (glfw:create-window :width width :height height :title title
                                            :visible visible :client-api :no-api))
                (window (make-instance 'vulkan-window :native native :title title
-                                      :visible-p visible)))
+                                      :visible-p visible
+                                      :focused-p (glfw:get-window-attribute :focused native))))
           (%register-vulkan-window window)
           window))
     (error (condition)
@@ -187,6 +196,8 @@
   (setf (%vulkan-scroll-handler window) function))
 (defmethod sgeo.platform:set-mouse-button-handler ((window vulkan-window) function)
   (setf (%vulkan-mouse-button-handler window) function))
+(defmethod sgeo.platform:set-focus-handler ((window vulkan-window) function)
+  (setf (%vulkan-focus-handler window) function))
 (defmethod sgeo.platform:set-character-handler ((window vulkan-window) function)
   (setf (%vulkan-character-handler window) function))
 (defmethod sgeo.platform:set-close-handler ((window vulkan-window) function)
@@ -202,6 +213,35 @@
   (case button ((:left :1) :left) ((:3) :middle) ((:right :2) :right)))
 (defmethod sgeo.platform:wireframe-event-p (key action)
   (and (eq key :w) (eq action :press)))
+
+;;; glfwGetGamepadState devolve quinze botões e seis eixos analógicos.
+(cffi:defcstruct %vulkan-native-gamepad-state
+  (buttons (:array :unsigned-char 15))
+  (axes (:array :float 6)))
+(cffi:defcfun ("glfwGetGamepadState" %vulkan-get-gamepad-state) :int
+  (joystick :int) (state :pointer))
+(defmethod sgeo.platform:window-gamepad-state ((window vulkan-window))
+  (when (%vulkan-focused-p window)
+    (cffi:with-foreign-object (state '(:struct %vulkan-native-gamepad-state))
+      (loop for joystick below 16
+            when (= 1 (%vulkan-get-gamepad-state joystick state)) do
+        (let ((buttons (cffi:foreign-slot-pointer
+                        state '(:struct %vulkan-native-gamepad-state) 'buttons))
+              (axes (cffi:foreign-slot-pointer
+                     state '(:struct %vulkan-native-gamepad-state) 'axes)))
+          (return
+            (list :buttons
+                  (loop for name in '(:a :b :x :y :left-bumper :right-bumper :back :start :guide
+                                      :left-thumb :right-thumb :dpad-up :dpad-right :dpad-down :dpad-left)
+                        for index from 0
+                        when (= 1 (cffi:mem-aref buttons :unsigned-char index)) collect name)
+                  :axes
+                  (loop for name in '(:left-x :left-y :right-x :right-y :left-trigger :right-trigger)
+                        for index from 0
+                        for value = (cffi:mem-aref axes :float index)
+                        collect (cons name (if (>= index 4)
+                                               (max 0d0 (min 1d0 (/ (+ value 1d0) 2d0)))
+                                               value))))))))))
 
 (defun %find-queue-family (physical-device window instance)
   (loop for properties in (vk:get-physical-device-queue-family-properties physical-device)

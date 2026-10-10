@@ -8,7 +8,7 @@ The first target is **Linux with SBCL**, using **cl-glfw3, cl-opengl and CFFI** 
 
 The architecture is described in [Modern S-Geometry in Pure Common Lisp](modern-s-geometry-design.md). This roadmap preserves its M0–M8 milestone numbering and divides M3 into an initial editor and later expansion.
 
-**Implementation status:** M0, M1, M2, M3a, M3b, M4 and M5 are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). See [M4 verification evidence](m4-implementation.md) for the shader compiler and Vulkan viewer, and [M5 verification evidence](m5-implementation.md) for animation and glTF. M6–M8 remain **Not started**.
+**Implementation status:** M0, M1, M2, M3a, M3b, M4, M5 and M6 are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). See [M4 verification evidence](m4-implementation.md) for the shader compiler and Vulkan viewer, and [M5 verification evidence](m5-implementation.md) for animation and glTF. See [M6 verification evidence](m6-implementation.md) for simulation and the game examples. M7–M8 remain **Not started**.
 
 Architectural commitments:
 
@@ -107,7 +107,7 @@ The first kernel supports **orientable manifold solids and open surfaces**, with
 
 ## Later milestones
 
-These milestones are **outside the first usable release**. M3b extends the editor, M4 adds the modern renderer, and M5 adds animation and glTF interchange; all three are complete. M6–M8 remain future goals. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
+These milestones are **outside the first usable release**. M3b extends the editor, M4 adds the modern renderer, and M5 adds animation and glTF interchange; all three are complete. M6 adds simulation and game services and is complete. M7–M8 remain future goals. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
 
 ### M3b — Editor expansion
 
@@ -155,16 +155,18 @@ These milestones are **outside the first usable release**. M3b extends the edito
 
 ### M6 — Simulation and game layer
 
-**Status:** Not started. **Release:** Later.
+**Status:** Complete. **Release:** Later.
 
-- [ ] Expand the world loop for simulation and game updates.
-- [ ] Implement semantic input maps, events, and debug drawing.
-- [ ] Implement collision primitives and basic physics.
-- [ ] Add an audio abstraction.
-- [ ] Build a live Boids example and a small interactive game.
-- [ ] Pass simulation and input tests and demonstrate the working examples.
+- [x] Expand the world loop for simulation and game updates.
+- [x] Implement semantic input maps, events, and debug drawing.
+- [x] Implement collision primitives and basic physics.
+- [x] Add an audio abstraction.
+- [x] Build a live Boids example and a small interactive game.
+- [x] Pass simulation and input tests and demonstrate the working examples.
 
 **Exit criterion:** A small interactive 3D game can be built entirely in Common Lisp.
+
+**Verification:** 2,346 headless checks pass with no skips or failures. The native OpenGL demonstration passes 579 checks: 172 game frames verify gameplay, restart, jump, focus release, pause, debug drawing, audio mixing and live function redefinition; both Boids modes complete 12 frames. Vulkan checks verify simulation and transient drawing over eight frames, plus restart and focus handling in a four-frame game run, without validation messages. Ten optional OpenAL checks pass with the null driver, and the audio-enabled game launcher exits cleanly. Physics is linear-only, audio streams are forward-only, and Boids run on the CPU in object and packed modes. See [M6 implementation and verification](m6-implementation.md) and the [simulation guide](simulation.md).
 
 ### M7 — Deployment
 

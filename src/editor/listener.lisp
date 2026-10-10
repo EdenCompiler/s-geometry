@@ -1,5 +1,12 @@
 (in-package #:sgeo.editor)
 
+(defparameter +editor-listener-stop-token+ (gensym "LISTENER-STOP"))
+
+(defun %throw-to-interrupt-tag (tag)
+  "Interrompe a thread quando o catch ainda existe e ignora a janela entre eles."
+  (handler-case (throw tag nil)
+    (control-error () nil)))
+
 (defun %listener-line (editor text)
   (bt:with-recursive-lock-held ((%editor-lock editor))
     (push text (editor-listener-output editor))
@@ -52,6 +59,8 @@
                        (loop while (and (not (%editor-closed-p editor)) (null (%listener-forms editor)))
                              do (bt:condition-wait (%listener-ready editor) (%editor-lock editor)))
                        (when (%editor-closed-p editor) (throw 'editor-listener-stop nil))
+                       (when (eq (first (%listener-forms editor)) +editor-listener-stop-token+)
+                         (throw 'editor-listener-stop nil))
                        (setf (%listener-busy editor) t)
                        (pop (%listener-forms editor)))
                    do (unwind-protect (%listener-evaluate editor source)
@@ -80,9 +89,12 @@
   (let ((thread (%listener-thread editor)))
     (when thread
       (bt:with-recursive-lock-held ((%editor-lock editor))
+        ;; O token também cobre a janela anterior ao CATCH da thread recém-criada.
+        (setf (%listener-forms editor) (list +editor-listener-stop-token+))
         (bt:condition-notify (%listener-ready editor)))
       (when (bt:thread-alive-p thread)
-        (ignore-errors (bt:interrupt-thread thread (lambda () (throw 'editor-listener-stop nil)))))
+        (ignore-errors (bt:interrupt-thread thread
+                                            (lambda () (%throw-to-interrupt-tag 'editor-listener-stop)))))
       (unless (eq thread (bt:current-thread)) (ignore-errors (bt:join-thread thread)))
       (setf (%listener-thread editor) nil (%listener-busy editor) nil (%listener-forms editor) nil)))
   editor)
@@ -125,6 +137,7 @@
   "Encerra a leitura terminal sem deixar uma thread pendente após fechar a janela."
   (setf (car stop-flag) t)
   (when (and thread (bt:thread-alive-p thread))
-    (ignore-errors (bt:interrupt-thread thread (lambda () (throw 'editor-terminal-stop nil))))
+    (ignore-errors (bt:interrupt-thread thread
+                                        (lambda () (%throw-to-interrupt-tag 'editor-terminal-stop))))
     (unless (eq thread (bt:current-thread)) (ignore-errors (bt:join-thread thread))))
   nil)

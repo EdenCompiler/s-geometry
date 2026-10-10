@@ -4,7 +4,7 @@
 
 (in-package #:sgeo.tests)
 
-(def-suite sgeo-suite :description "Validação headless dos marcos M0 a M3.")
+(def-suite sgeo-suite :description "Validação headless dos marcos M0 a M6.")
 (in-suite sgeo-suite)
 
 (defun approximately= (a b &optional (epsilon 1d-8))

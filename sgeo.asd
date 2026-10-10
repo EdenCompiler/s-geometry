@@ -41,6 +41,33 @@
   :serial t
   :components ((:file "src/gltf/package") (:file "src/gltf/gltf")))
 
+(asdf:defsystem #:sgeo/input
+  :description "Mapas semânticos de entrada independentes da plataforma."
+  :depends-on (#:sgeo/scene) :serial t
+  :components ((:file "src/input/package") (:file "src/input/input")))
+(asdf:defsystem #:sgeo/physics
+  :description "Colisões de primitivas e corpos rígidos destacáveis em Lisp."
+  :depends-on (#:sgeo/scene) :serial t
+  :components ((:file "src/physics/package") (:file "src/physics/physics")))
+(asdf:defsystem #:sgeo/audio
+  :description "Objetos de áudio e mixer PCM posicional em Lisp."
+  :depends-on (#:sgeo/scene) :serial t
+  :components ((:file "src/audio/package") (:file "src/audio/audio")))
+(asdf:defsystem #:sgeo/audio/openal
+  :description "Saída OpenAL opcional para o mixer Lisp."
+  :depends-on (#:sgeo/audio #:cffi)
+  :components ((:file "backends/audio/openal")))
+(asdf:defsystem #:sgeo/debug
+  :description "Desenho temporário de diagnósticos extraído pela cena."
+  :depends-on (#:sgeo/scene) :serial t
+  :components ((:file "src/debug/package") (:file "src/debug/debug")))
+(asdf:defsystem #:sgeo/simulation
+  :description "Fases do mundo, relógio fixo, eventos, agenda e índice espacial."
+  :depends-on (#:sgeo #:sgeo/input #:sgeo/physics #:sgeo/audio #:sgeo/debug) :serial t
+  :components ((:file "src/simulation/package") (:file "src/simulation/events")
+               (:file "src/simulation/spatial") (:file "src/simulation/loop")
+               (:file "src/simulation/api")))
+
 (asdf:defsystem #:sgeo
   :description "API pública do núcleo headless do S-Geometry/CL."
   :version "0.1.0"
@@ -83,7 +110,7 @@
 
 (asdf:defsystem #:sgeo/runtime/core
   :description "Laço gráfico e REPL externo sobre o mesmo mundo vivo."
-  :depends-on (#:sgeo #:sgeo/render #:bordeaux-threads)
+  :depends-on (#:sgeo #:sgeo/simulation #:sgeo/render #:bordeaux-threads)
   :serial t
   :components ((:file "src/runtime/package") (:file "src/runtime/runtime")
                (:file "src/runtime-api")))
@@ -113,6 +140,15 @@
   :depends-on (#:sgeo/editor/opengl)
   :components ((:file "examples/animation-scene")))
 
+(asdf:defsystem #:sgeo/examples/simulation
+  :description "Boids e jogo interativo construídos com os sistemas de simulação."
+  :depends-on (#:sgeo/simulation) :serial t
+  :components ((:file "examples/simulation/package") (:file "examples/simulation/boids")
+               (:file "examples/simulation/game")))
+(asdf:defsystem #:sgeo/examples/simulation/opengl
+  :description "Laçadores OpenGL dos exemplos de simulação."
+  :depends-on (#:sgeo/examples/simulation #:sgeo/runtime))
+
 (asdf:defsystem #:sgeo/serialization
   :description "Persistência legível, validada e versionada de cenas Lisp."
   :depends-on (#:sgeo/animation)
@@ -132,7 +168,7 @@
 
 (asdf:defsystem #:sgeo/tests
   :description "Testes headless do núcleo e da cena."
-  :depends-on (#:sgeo #:sgeo/editor #:sgeo/render #:fiveam)
+  :depends-on (#:sgeo #:sgeo/editor #:sgeo/render #:sgeo/examples/simulation #:sgeo/runtime/core #:fiveam)
   :serial t
   :components ((:file "tests/package") (:file "tests/core-math")
                (:file "tests/geometry-scene") (:file "tests/kernel-topology")
@@ -144,7 +180,10 @@
                (:file "tests/modern-render")
                (:file "tests/animation-tracks") (:file "tests/animation-skeleton")
                (:file "tests/animation-editor") (:file "tests/animation-persistence")
-               (:file "tests/gltf") (:file "tests/gltf-validation"))
+               (:file "tests/gltf") (:file "tests/gltf-validation")
+               (:file "tests/input") (:file "tests/physics") (:file "tests/audio")
+               (:file "tests/debug-draw") (:file "tests/simulation") (:file "tests/boids")
+               (:file "tests/game") (:file "tests/m6-edge-cases") (:file "tests/runtime-input"))
   :perform (test-op (operation component)
              (declare (ignore operation component))
              (unless (uiop:symbol-call :sgeo.tests :run-tests)

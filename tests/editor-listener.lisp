@@ -74,6 +74,19 @@
       (sgeo.editor:close-editor editor)
       (fmakunbound 'cl-user::editor-test-live-operation))))
 
+(test editor-listener-stop-is-safe-during-startup-and-after-exit
+  (loop repeat 12 do
+    (let ((editor (sgeo.editor:make-editor)))
+      ;; Interrompe imediatamente, antes de a thread necessariamente entrar no CATCH.
+      (sgeo.editor:start-editor-listener editor)
+      (sgeo.editor:stop-editor-listener editor)
+      (is (null (sgeo.editor::%listener-thread editor)))
+      ;; Reinicia e fecha o editor; interrompe novamente após a saída da thread.
+      (sgeo.editor:start-editor-listener editor)
+      (sgeo.editor:close-editor editor)
+      (sgeo.editor:stop-editor-listener editor)
+      (is (not (sgeo.editor:listener-busy-p editor))))))
+
 (test editor-runtime-timeline-controls
   (let ((editor (sgeo.editor:make-editor)))
     (unwind-protect

@@ -1,0 +1,20 @@
+;;;; Opções compartilhadas dos exemplos; o lançador principal continua abrindo o editor.
+(defun simulation-options (arguments)
+  "Lê opções simples sem avaliar formulários externos."
+  (let ((visible t) (repl t) (frames nil) (capture nil) (audio nil) (packed nil) (count 48))
+    (labels ((argument () (or (pop arguments) (error "Falta argumento para a opção."))))
+      (loop while arguments for option = (pop arguments) do
+        (cond ((string= option "--hidden") (setf visible nil))
+              ((string= option "--no-repl") (setf repl nil))
+              ((string= option "--audio") (setf audio t))
+              ((string= option "--packed") (setf packed t))
+              ((string= option "--frames") (setf frames (parse-integer (argument))))
+              ((string= option "--count") (setf count (parse-integer (argument))))
+              ((string= option "--capture") (setf capture (argument)))
+              ((string= option "--help")
+               (format t "Opções: --frames N --hidden --no-repl --capture arquivo.ppm --audio (jogo) --packed --count N (Boids)~%")
+               (uiop:quit 0))
+              (t (error "Opção desconhecida: ~A" option)))))
+    (unless (and (or (null frames) (and (integerp frames) (plusp frames))) (plusp count))
+      (error "Contagens precisam ser positivas."))
+    (values visible repl frames capture audio packed count)))

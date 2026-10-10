@@ -1,8 +1,10 @@
 ;; A fachada gráfica acrescenta suas operações quando o sistema runtime é carregado.
 (uiop:define-package #:sgeo
-  (:use #:cl #:sgeo.core #:sgeo.math #:sgeo.geometry #:sgeo.scene #:sgeo.animation #:sgeo.runtime)
+  (:use #:cl #:sgeo.core #:sgeo.math #:sgeo.geometry #:sgeo.scene #:sgeo.animation #:sgeo.runtime
+        #:sgeo.input #:sgeo.physics #:sgeo.audio #:sgeo.debug #:sgeo.simulation)
   (:nicknames #:sg)
-  (:reexport #:sgeo.core #:sgeo.math #:sgeo.geometry #:sgeo.scene #:sgeo.animation #:sgeo.runtime)
+  (:reexport #:sgeo.core #:sgeo.math #:sgeo.geometry #:sgeo.scene #:sgeo.animation #:sgeo.runtime
+             #:sgeo.input #:sgeo.physics #:sgeo.audio #:sgeo.debug #:sgeo.simulation)
   (:export #:run #:*world* #:*selection*))
 
 ;; A carga tardia do runtime preserva as exportações opcionais já instaladas.

@@ -231,6 +231,16 @@
 
 (defvar *render-viewport-origin* '(0 0))
 
+(defun %sweep-mesh-cache (renderer entries)
+  "Libera lotes transitórios e geometrias retiradas depois de desenhar o quadro."
+  (let ((live (make-hash-table :test 'eq)) (retired nil))
+    (dolist (entry entries)
+      (setf (gethash (or (getf entry :render-key) (getf entry :geometry)) live) t))
+    (maphash (lambda (key mesh) (unless (gethash key live) (push (cons key mesh) retired)))
+             (%mesh-cache renderer))
+    (dolist (pair retired)
+      (%destroy-gpu-mesh (cdr pair)) (remhash (car pair) (%mesh-cache renderer)))))
+
 (defun render-viewport (renderer world x y width height)
   "Renderiza a cena em uma região do framebuffer, com origem OpenGL inferior."
   (let ((*render-viewport-origin* (list x y)))
@@ -251,6 +261,7 @@
         (%set-mat4 (%uniform renderer "uProjection") projection)
         (%set-mat4 (%uniform renderer "uView") view)
         (dolist (entry entries) (%draw-entry renderer entry selection))
+        (%sweep-mesh-cache renderer entries)
         (check-opengl-error "renderização do quadro")
         (incf (sgeo.render:renderer-frame-count renderer))
         (setf (sgeo.render:renderer-last-error renderer) nil)

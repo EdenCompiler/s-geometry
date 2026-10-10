@@ -1,5 +1,9 @@
 (in-package #:sgeo.platform)
 
+(defmethod set-focus-handler ((window platform-window) function)
+  (declare (ignore window function)) nil)
+(defmethod window-gamepad-state ((window platform-window)) (declare (ignore window)) nil)
+
 (defmacro with-native-graphics-environment (() &body body)
   "Mascara armadilhas numéricas dos drivers e restaura o ambiente Lisp."
   #+sbcl

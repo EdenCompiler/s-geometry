@@ -24,6 +24,9 @@
                       (when (> (get-internal-real-time) deadline)
                         (error "O terminal não encerrou após :quit."))
                       (sleep 0.001d0)))
+           ;; Repetir a parada após a saída natural não pode lançar para um CATCH extinto.
+           (sgeo.editor:stop-editor-terminal thread stop-flag)
+           (is (not (bt:thread-alive-p thread)))
            (is (car stop-flag))
            (is (eq world (sgeo.editor:editor-world editor)))
            (is (vector-approximately= (sgeo.math:transform-position
@@ -37,3 +40,23 @@
                                       #(0d0 0d0 0d0))))
       (when thread (sgeo.editor:stop-editor-terminal thread stop-flag))
       (sgeo.editor:close-editor editor))))
+
+(test editor-terminal-stop-is-safe-during-startup-and-after-exit
+  (loop repeat 12 do
+    (let* ((editor (sgeo.editor:make-editor))
+           (stop-flag (list nil))
+           (input (make-string-input-stream ""))
+           (output (make-string-output-stream))
+           (query (make-two-way-stream input output))
+           (thread nil))
+      (unwind-protect
+           (let ((*standard-input* input)
+                 (*standard-output* output)
+                 (*query-io* query))
+             ;; EOF pode encerrar a thread antes que STOP a observe como ativa.
+             (setf thread (sgeo.editor:start-editor-terminal editor stop-flag))
+             (sgeo.editor:stop-editor-terminal thread stop-flag)
+             (is (not (bt:thread-alive-p thread)))
+             (sgeo.editor:stop-editor-terminal thread stop-flag))
+        (when thread (sgeo.editor:stop-editor-terminal thread stop-flag))
+        (sgeo.editor:close-editor editor)))))

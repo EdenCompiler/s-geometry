@@ -1,5 +1,25 @@
 (in-package #:sgeo.runtime)
 
+(defun %world-input (world)
+  (let ((state (sgeo.scene:world-simulation-state world)))
+    (when state (sgeo.simulation:simulation-input state))))
+(defun %poll-gamepad-input (window input)
+  "Mapeia o primeiro controle reconhecido e libera valores após desconexão."
+  (when input
+    (let ((state (sgeo.platform:window-gamepad-state window)))
+      (dolist (name '(:a :b :x :y :left-bumper :right-bumper :back :start :guide
+                     :left-thumb :right-thumb :dpad-up :dpad-right :dpad-down :dpad-left))
+        (sgeo.input:queue-input-event input :gamepad-button :code name
+          :action (if (member name (getf state :buttons)) :press :release)))
+      (dolist (name '(:left-x :left-y :right-x :right-y :left-trigger :right-trigger))
+        (sgeo.input:queue-input-event input :gamepad-axis :code name
+          :value (or (cdr (assoc name (getf state :axes))) 0d0)))
+      ;; Gatilhos expõem pressão analógica e um botão semântico no limiar de 50%.
+      (dolist (name '(:left-trigger :right-trigger))
+        (sgeo.input:queue-input-event input :gamepad-button :code name
+          :action (if (> (or (cdr (assoc name (getf state :axes))) 0d0) 0.5d0)
+                      :press :release))))))
+
 (defun %set-selection (world object base-title window)
   (setf (sgeo.scene:world-selection world) object)
   (setf *selection* object)
@@ -87,14 +107,17 @@
    :name "sgeo interactive listener")))))
 
 (defun run-world (world &key (width 1024) (height 768) (title "S-Geometry")
-                             (max-frames nil) (visible t) repl capture-path frame-hook (backend :opengl) validation)
+                             (max-frames nil) (visible t) repl capture-path frame-hook (backend :opengl) validation
+                             (controls :viewer) frame-dt)
   "Executa o laço gráfico e devolve WORLD, o renderizador encerrado e o relatório."
   #+sb-thread
   (unless (eq sb-thread:*current-thread* (sb-thread:main-thread))
     (error 'sgeo.core:platform-error :context "thread da janela"
            :message "O laço gráfico precisa iniciar na thread principal."))
   (unless (and (integerp width) (plusp width) (integerp height) (plusp height)
-               (or (null max-frames) (and (integerp max-frames) (plusp max-frames))))
+               (or (null max-frames) (and (integerp max-frames) (plusp max-frames)))
+               (member controls '(:viewer :game))
+               (or (null frame-dt) (and (realp frame-dt) (<= 0 frame-dt most-positive-double-float))))
     (error 'sgeo.core:validation-error :context "parâmetros do runtime"
            :message "Largura, altura e limite de quadros precisam ser inteiros positivos."))
   (setf *world* world
@@ -103,7 +126,7 @@
          (window nil) (renderer nil) (frame 0) (previous-time 0d0)
          (stop-flag (list nil)) (listener nil) (mouse-x 0d0) (mouse-y 0d0)
          (middle-down nil) (right-down nil) (first-cursor-p t)
-         (platform-condition nil))
+         (platform-condition nil) (input (%world-input world)))
     (sgeo.platform:with-native-graphics-environment ()
       (unwind-protect
          (progn
@@ -118,22 +141,25 @@
            (sgeo.platform:set-key-handler
             window
             (lambda (key scancode action mods)
-              (declare (ignore scancode mods))
+              (declare (ignore scancode))
+              (when input (sgeo.input:queue-input-event input :key :code key :action action :mods mods))
               (when (sgeo.platform:escape-event-p key action)
                 (sgeo.platform:request-window-close window))
-              (when (and (eq backend :vulkan) (eq key :r) (sgeo.platform:press-event-p action))
+              (when (and (eq controls :viewer) (eq backend :vulkan) (eq key :r)
+                         (sgeo.platform:press-event-p action))
                 (sgeo.render:reload-renderer-shaders renderer))
-              (when (and (sgeo.platform:wireframe-event-p key action)
+              (when (and (eq controls :viewer) (sgeo.platform:wireframe-event-p key action)
                          (not (car stop-flag)))
                 (%toggle-wireframe world))))
            (sgeo.platform:set-mouse-button-handler
             window
             (lambda (button action mods)
-              (declare (ignore mods))
+              (when input (sgeo.input:queue-input-event input :mouse-button
+                            :code (sgeo.platform:mouse-button-kind button) :action action :mods mods))
               (let ((pressed (sgeo.platform:press-event-p action)))
                 (case (sgeo.platform:mouse-button-kind button)
                   (:left
-                   (when pressed (%pick-at-cursor world window title)))
+                   (when (and pressed (eq controls :viewer)) (%pick-at-cursor world window title)))
                   (:middle
                    (setf middle-down pressed))
                   (:right
@@ -141,6 +167,7 @@
            (sgeo.platform:set-cursor-handler
             window
             (lambda (x y)
+              (when input (sgeo.input:queue-input-event input :cursor :x x :y y))
               (unless first-cursor-p
                 (let ((dx (- x mouse-x)) (dy (- y mouse-y))
                       (camera (sgeo.scene:world-camera world)))
@@ -155,18 +182,28 @@
            (sgeo.platform:set-scroll-handler
             window
             (lambda (x y)
-              (declare (ignore x))
+              (when input (sgeo.input:queue-input-event input :scroll :x x :y y))
               (sgeo.scene:with-world-lock (world)
                 (sgeo.scene:zoom-camera (sgeo.scene:world-camera world) (* y -0.1d0)))))
+           (sgeo.platform:set-focus-handler window
+             (lambda (focused-p)
+               (unless focused-p (setf middle-down nil right-down nil))
+               (when input (sgeo.input:queue-input-event input :focus :focused-p focused-p))))
            (setf previous-time (sgeo.platform:window-time window))
            (loop until (or (sgeo.platform:window-should-close-p window) (car stop-flag))
-                 do (sgeo.platform:poll-events window)
+                 do (let ((current (%world-input world)))
+                      (unless (eq input current)
+                        (when input (sgeo.input:clear-input-state input))
+                        (setf input current)))
+                    (sgeo.platform:poll-events window)
+                    (%poll-gamepad-input window input)
                     (let ((selected (sgeo.scene:with-world-lock (world)
                                       (sgeo.scene:world-selection world))))
                       (unless (eq selected *selection*)
                         (%set-selection world selected title window)))
                     (let* ((now (sgeo.platform:window-time window))
-                           (dt (max 0d0 (min 0.1d0 (- now previous-time)))))
+                           (dt (if frame-dt (coerce frame-dt 'double-float)
+                                   (max 0d0 (min 0.1d0 (- now previous-time))))))
                       (setf previous-time now)
                       (handler-case (sgeo.scene:update-world world dt)
                         (error (condition)
@@ -197,6 +234,7 @@
                                         :platform-error (or platform-condition
                                                             (sgeo.platform:window-error window)))))
       (setf (car stop-flag) t)
+      (when input (sgeo.input:clear-input-state input))
       (setf *renderer* nil)
       (sgeo.scene:with-world-lock (world)
         (setf (sgeo.scene:world-running-p world) nil))
@@ -204,7 +242,10 @@
         (when (bt:thread-alive-p listener)
           (ignore-errors
             (bt:interrupt-thread listener
-                                 (lambda () (throw 'sgeo-repl-stop nil)))))
+                                 (lambda ()
+                                   ;; A thread pode estar iniciando ou já ter saído do CATCH.
+                                   (handler-case (throw 'sgeo-repl-stop nil)
+                                     (control-error () nil))))))
         (ignore-errors (bt:join-thread listener)))
       (unwind-protect
            (when renderer (sgeo.render:destroy-renderer renderer))
