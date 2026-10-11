@@ -186,6 +186,31 @@
         (when (probe-file root)
           (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore))))))
 
+(test deployment-asset-directory-expansion-normalizes-parent-aliases
+  (unless (uiop:os-windows-p)
+    (let* ((root (%deployment-test-root))
+           (leaf (car (last (pathname-directory root))))
+           (alias (merge-pathnames (pathname (format nil "~A-alias" leaf))
+                                   (sgeo.deployment::%directory-parent root)))
+           (pack-a (merge-pathnames #P"real.sgp" root))
+           (pack-b (merge-pathnames #P"alias.sgp" root)))
+      (unwind-protect
+           (progn
+             (%deployment-write-file root #P"data/nested/one.bin" "same bytes")
+             (uiop:run-program (list "ln" "-s" (namestring root) (namestring alias))
+                               :ignore-error-status nil)
+             (let* ((real-assets (sgeo.deployment::%absolute-assets (list "data/") root))
+                    (alias-assets (sgeo.deployment::%absolute-assets (list "data/") alias)))
+               (is (equal (mapcar (lambda (spec) (getf spec :name)) real-assets)
+                          (mapcar (lambda (spec) (getf spec :name)) alias-assets)))
+               (sgeo.assets:compile-assets real-assets pack-a)
+               (sgeo.assets:compile-assets alias-assets pack-b)
+               (is (equalp (%deployment-file-octets pack-a)
+                           (%deployment-file-octets pack-b)))))
+        (when (probe-file root)
+          (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore))
+        (when (probe-file alias) (ignore-errors (delete-file alias)))))))
+
 (test deployment-packed-game-consumes-geometry-and-pcm-products-headlessly
   (let* ((root (%deployment-test-root))
          (project-root (asdf:system-source-directory :sgeo))

@@ -192,6 +192,7 @@
                     (ironclad:digest-file :sha256 path))))
 
 (defun %relative-file-names (root)
+  (setf root (truename root))
   (sort
    (loop for path in (%all-files root)
          collect (enough-namestring path root))
@@ -203,16 +204,34 @@
                 append (%all-files directory))))
 
 (defun %portable-relative-name (path root)
-  (substitute #\/ #\\ (enough-namestring path root)))
+  (substitute #\/ #\\ (enough-namestring (truename path) (truename root))))
 
 (defun %safe-package-tree-files (root)
   "Retorna arquivos sem seguir links simbólicos nem sair da raiz do pacote."
-  (let ((visited (make-hash-table :test #'equalp))
+  (let ((root (truename root))
+        (visited (make-hash-table :test #'equalp))
         (files nil))
-    (labels ((check-node (path directory-p)
+    (labels ((canonical-entry-path (path directory-p)
+               (let* ((parent (if directory-p
+                                  (%directory-parent (uiop:ensure-directory-pathname path))
+                                  (uiop:pathname-directory-pathname path)))
+                      (canonical-parent (truename parent))
+                      (entry (if directory-p
+                                 (merge-pathnames
+                                  (pathname (format nil "~A/"
+                                                    (car (last (pathname-directory
+                                                                (uiop:ensure-directory-pathname path))))))
+                                  canonical-parent)
+                                 (make-pathname :name (pathname-name path)
+                                                :type (pathname-type path)
+                                                :version (pathname-version path)
+                                                :defaults canonical-parent))))
+                 entry))
+             (check-node (path directory-p)
                (let ((true (truename path)))
                  (unless (and (%path-under-directory-p true root)
-                              (equalp (namestring path) (namestring true)))
+                              (equalp (namestring (canonical-entry-path path directory-p))
+                                      (namestring true)))
                    (%packaging-fail "Caminho simbólico ou externo ao pacote: ~A."
                                     (%path-string path)))
                  (when directory-p
@@ -317,6 +336,7 @@
     (error () nil)))
 
 (defun %write-manifest (app-directory name version target diagnostics)
+  (setf app-directory (truename app-directory))
   (let* ((manifest (merge-pathnames #P"MANIFEST.sha256" app-directory))
          (files (sort (remove manifest (%all-files app-directory) :test #'equal)
                       #'string< :key (lambda (path) (enough-namestring path app-directory)))))
@@ -425,8 +445,7 @@
     (let* ((base (ecase target
                    (:linux destination-path)
                    (:windows destination-path)
-                   (:macos (merge-pathnames (make-pathname :directory `(:relative
-                                                                          (concatenate 'string name ".app")))
+                   (:macos (merge-pathnames (pathname (concatenate 'string name ".app/"))
                                             destination-path))))
            (generated (ecase target
                         (:linux (list (merge-pathnames (make-pathname :directory '(:relative "bin")

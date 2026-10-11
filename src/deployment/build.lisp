@@ -232,6 +232,7 @@
 
 (defun %absolute-assets (manifest root)
   "Expande arquivos e diretórios como bytes; manifests explícitos escolhem nome e importador."
+  (setf root (truename root))
   (unless (handler-case (or (null manifest) (list-length manifest)) (type-error () nil))
     (error 'build-error :message "A lista de ativos precisa ser própria e finita."))
   (loop for spec in manifest append

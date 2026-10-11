@@ -20,19 +20,25 @@
 
 (defun %spirv-validation-tool ()
   (let* ((bundled (merge-pathnames
-                   ".cache/vulkan-tools/usr/bin/spirv-val"
+                   ".cache/vulkan-tools/usr/bin/"
                    (asdf:system-source-directory :sgeo)))
-         (path (uiop:getenv "PATH")))
-    (or (and (probe-file bundled) bundled)
-        (when path
-          (loop for start = 0 then (1+ end)
-                for end = (position #\: path :start start)
-                for directory = (subseq path start end)
-                for candidate = (merge-pathnames
-                                 "spirv-val"
-                                 (uiop:ensure-directory-pathname directory))
-                when (probe-file candidate) return candidate
-                while end)))))
+         (path (uiop:getenv "PATH"))
+         (separator (if (uiop:os-windows-p) #\; #\:))
+         (names (if (uiop:os-windows-p) '("spirv-val.exe" "spirv-val")
+                    '("spirv-val"))))
+    (labels ((find-in (directory)
+               (loop for name in names
+                     for candidate = (merge-pathnames
+                                      name (uiop:ensure-directory-pathname directory))
+                     when (probe-file candidate) return candidate)))
+      (or (find-in bundled)
+          (when path
+            (loop for start = 0 then (1+ end)
+                  for end = (position separator path :start start)
+                  for directory = (subseq path start end)
+                  for candidate = (and (plusp (length directory)) (find-in directory))
+                  when candidate return candidate
+                  while end))))))
 
 (defun %validate-spirv-file (validator pathname)
   (multiple-value-bind (output error-output status)
