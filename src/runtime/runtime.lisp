@@ -108,7 +108,7 @@
 
 (defun run-world (world &key (width 1024) (height 768) (title "S-Geometry")
                              (max-frames nil) (visible t) repl capture-path frame-hook (backend :opengl) validation
-                             (controls :viewer) frame-dt)
+                             (controls :viewer) frame-dt profiler)
   "Executa o laço gráfico e devolve WORLD, o renderizador encerrado e o relatório."
   #+sb-thread
   (unless (eq sb-thread:*current-thread* (sb-thread:main-thread))
@@ -195,8 +195,12 @@
                       (unless (eq input current)
                         (when input (sgeo.input:clear-input-state input))
                         (setf input current)))
+                    (when profiler (sgeo.diagnostics:begin-frame profiler))
+                    (sgeo.diagnostics:with-profile-scope ("runtime/frame" :profiler profiler :subsystem :runtime)
+                    (sgeo.diagnostics:with-profile-scope ("platform/poll" :subsystem :platform :frame-phase :input)
                     (sgeo.platform:poll-events window)
                     (%poll-gamepad-input window input)
+                    )
                     (let ((selected (sgeo.scene:with-world-lock (world)
                                       (sgeo.scene:world-selection world))))
                       (unless (eq selected *selection*)
@@ -205,8 +209,11 @@
                            (dt (if frame-dt (coerce frame-dt 'double-float)
                                    (max 0d0 (min 0.1d0 (- now previous-time))))))
                       (setf previous-time now)
-                      (handler-case (sgeo.scene:update-world world dt)
+                      (handler-case
+                          (sgeo.diagnostics:with-profile-scope ("world/update" :subsystem :scene :frame-phase :update)
+                            (sgeo.scene:update-world world dt))
                         (error (condition)
+                          (when profiler (sgeo.diagnostics:record-diagnostic-error profiler condition :phase :update))
                           (setf platform-condition condition))))
                     (when frame-hook
                       (handler-case (funcall frame-hook world window renderer frame)
@@ -215,17 +222,24 @@
                     (multiple-value-bind (fb-width fb-height)
                         (sgeo.platform:framebuffer-size window)
                       (when (and (plusp fb-width) (plusp fb-height))
-                        (sgeo.render:render-frame renderer world fb-width fb-height))
+                        (sgeo.diagnostics:with-profile-scope ("render/submit" :subsystem :render :frame-phase :render)
+                          (sgeo.render:render-frame renderer world fb-width fb-height)))
                       (when (and capture-path
                                  (if max-frames (= (1+ frame) max-frames) (zerop frame)))
                         (handler-case
                             (sgeo.render:capture-frame renderer window capture-path)
                           (error (condition) (setf platform-condition condition)))
                         (setf capture-path nil))
-                      (sgeo.platform:swap-buffers window))
+                      (sgeo.diagnostics:with-profile-scope ("platform/present" :subsystem :platform :frame-phase :present)
+                        (sgeo.platform:swap-buffers window)))
+                    )
+                    (when profiler (sgeo.diagnostics:end-frame profiler))
                     (incf frame)
                     (when (and max-frames (>= frame max-frames))
                       (sgeo.platform:request-window-close window)))
+           (sgeo.render:drain-renderer-profile renderer :wait t)
+           (when profiler
+             (sgeo.diagnostics:set-profiler-renderer-info profiler (sgeo.render:renderer-info renderer)))
            (values world renderer
                    (make-runtime-report :frames (sgeo.render:renderer-frame-count renderer)
                                         :uploads (sgeo.render:renderer-upload-count renderer)

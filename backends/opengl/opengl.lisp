@@ -10,6 +10,8 @@
   ((program :accessor %program :initform 0)
    (locations :accessor %locations :initform nil)
    (mesh-cache :accessor %mesh-cache :initform (make-hash-table :test #'eq))
+   (profile-queries :accessor %profile-queries :initform nil)
+   (profile-targets :accessor %profile-targets :initform nil)
    (window :initarg :window :reader %renderer-window)))
 
 (defun check-opengl-error (context)
@@ -283,7 +285,11 @@
 (defmethod sgeo.render:renderer-info ((renderer opengl-renderer))
   (append (call-next-method)
           (list :gpu-meshes (hash-table-count (%mesh-cache renderer))
-                :opengl-version (gl:get-string :version))))
+                :opengl-version (gl:get-string :version)
+                :device (gl:get-string :renderer) :vendor (gl:get-string :vendor)
+                :profiling (list :timestamp-queries t
+                                 :pipeline-statistics (or (rest (%profile-targets renderer))
+                                                          '(:primitives-generated))))))
 
 (defmethod sgeo.render:capture-frame ((renderer opengl-renderer) window path)
   (declare (ignore renderer))

@@ -93,11 +93,28 @@
                        (ignore-errors (symbol-value gc-symbol)))))
     (values bytes gc-time)))
 
+(defun %profile-aggregate-display-data (aggregates)
+  "Prepara listas de agregados para os rankings do painel de perfil."
+  (let* ((records (coerce aggregates 'list))
+         (top (subseq (stable-sort (copy-list records) #'>
+                                   :key (lambda (entry) (getf entry :inclusive-ns)))
+                      0 (min 3 (length records))))
+         (top-allocator
+           (first (stable-sort
+                   (remove-if-not (lambda (entry)
+                                    (numberp (getf entry :allocated-bytes)))
+                                  (copy-list records))
+                   #'> :key (lambda (entry) (getf entry :allocated-bytes))))))
+    (values top top-allocator)))
+
 (defun %draw-workspace-profile (state rect)
   (let* ((editor (editor-ui-editor state))
          (profile (sgeo.editor:editor-profile editor))
          (samples (editor-ui-profile-samples state))
          (renderer (editor-ui-ui-renderer state))
+         (diagnostics-profiler (sgeo.diagnostics:current-profiler))
+         (diagnostics (and diagnostics-profiler
+                           (sgeo.diagnostics:profiler-snapshot diagnostics-profiler)))
          (bytes nil) (gc-time nil))
     (multiple-value-setq (bytes gc-time) (%workspace-runtime-metrics))
     (%workspace-heading state rect "Perfil de execução")
@@ -123,10 +140,39 @@
                                              (%workspace-number
                                               (* 1000d0 (/ gc-time internal-time-units-per-second))))
                        (%color :muted)))
+    (when diagnostics
+      (let* ((capabilities (getf diagnostics :capabilities))
+             (aggregates (getf diagnostics :aggregates))
+             (timeline (getf diagnostics :timeline))
+             (top nil) (top-allocator nil)
+             (last-frame (find "frame-end" timeline :key (lambda (entry) (getf entry :kind))
+                               :test #'equal :from-end t)))
+        (multiple-value-setq (top top-allocator)
+          (%profile-aggregate-display-data aggregates))
+        (%workspace-text state rect 4
+                         (format nil "Métricas CPU: ativo · alocação: ~A · GPU: ~A"
+                                 (getf capabilities :allocation) (getf capabilities :gpu))
+                         (%color :muted))
+        (loop for entry in top for row from 5
+              for phase = (or (getf entry :frame-phase) (getf entry :subsystem) "engine") do
+                (%workspace-text state rect row
+                  (format nil "~A/~A · ~A ms~@[ · ~D B~]"
+                          phase (getf entry :function)
+                          (%workspace-number (/ (getf entry :inclusive-ns) 1000000d0))
+                          (getf entry :allocated-bytes))))
+        (when top-allocator
+          (%workspace-text state rect 8
+            (format nil "Maior alocador: ~A/~A · ~D B"
+                    (or (getf top-allocator :subsystem) "engine")
+                    (getf top-allocator :function) (getf top-allocator :allocated-bytes))))
+        (when (numberp (getf last-frame :allocated-bytes))
+          (%workspace-text state rect 9
+            (format nil "Alocação do último quadro: ~D KB"
+                    (floor (getf last-frame :allocated-bytes) 1024))))))
     (let* ((chart-x (+ (first rect) 10))
-           (chart-y (+ (second rect) 130))
+           (chart-y (+ (second rect) (if diagnostics 230 130)))
            (chart-width (max 1 (- (third rect) 20)))
-           (chart-height (max 32 (min 180 (- (fourth rect) 174))))
+           (chart-height (max 32 (min 160 (- (fourth rect) (if diagnostics 280 174)))))
            (samples (subseq samples 0 (min 120 (length samples))))
            (maximum (max 1d-9 (reduce #'max samples :initial-value 0d0)))
            (count (length samples))

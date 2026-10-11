@@ -3,6 +3,7 @@
   (:export #:renderer #:create-renderer #:render-frame #:destroy-renderer
            #:renderer-frame-count #:renderer-upload-count #:renderer-last-error
            #:renderer-info #:capture-frame #:reload-renderer-shaders #:*graphics-validation*
+           #:drain-renderer-profile
            #:render-resource #:make-render-resource #:render-resource-name
            #:render-resource-format #:render-resource-transient-p #:render-resource-external-p
            #:render-pass #:make-render-pass #:render-pass-name #:render-pass-reads

@@ -94,6 +94,8 @@
   instance physical-device device queue present-queue queue-family
   present-queue-family command-pool memory-properties window surface
   swapchain swapchain-images swapchain-image-views swapchain-extent extension-loader
+  (timestamp-period-ns 0d0) (timestamp-valid-bits 0)
+  (pipeline-statistics-query-supported-p nil)
   validation-messenger (validation-messages nil) validation-user-data
   (closed-p nil))
 
@@ -113,6 +115,10 @@
 (defun context-swapchain-image-views (context) (vulkan-context-swapchain-image-views context))
 (defun context-swapchain-extent (context) (vulkan-context-swapchain-extent context))
 (defun context-extension-loader (context) (vulkan-context-extension-loader context))
+(defun context-timestamp-period-ns (context) (vulkan-context-timestamp-period-ns context))
+(defun context-timestamp-valid-bits (context) (vulkan-context-timestamp-valid-bits context))
+(defun context-pipeline-statistics-query-supported-p (context)
+  (vulkan-context-pipeline-statistics-query-supported-p context))
 (defun context-validation-messages (context)
   (bt:with-lock-held (*vulkan-validation-lock*)
     (let ((bucket (vulkan-context-validation-messages context)))
@@ -310,15 +316,26 @@
                       (vk:make-surface-khr-wrapper
                        (glfw:create-window-surface
                         (vk:raw-handle instance) native-window))))))
-          (multiple-value-bind (physical-device queue-family)
+         (multiple-value-bind (physical-device queue-family)
               (%select-physical-device instance native-window)
             (let* ((extensions (if surface (list vk:+khr-swapchain-extension-name+) nil))
+                   (features (vk:get-physical-device-features physical-device))
+                   (pipeline-statistics-p (vk:pipeline-statistics-query features))
+                   (queue-properties (nth queue-family
+                                          (vk:get-physical-device-queue-family-properties
+                                           physical-device)))
+                   (timestamp-valid-bits (vk:timestamp-valid-bits queue-properties))
+                   (limits (vk:limits (vk:get-physical-device-properties physical-device)))
+                   (timestamp-period (vk:timestamp-period limits))
                    (queue-info (vk:make-device-queue-create-info
                                 :queue-family-index queue-family
                                 :queue-priorities '(1.0f0)))
                    (device-info (vk:make-device-create-info
                                  :queue-create-infos (list queue-info)
-                                 :enabled-extension-names extensions)))
+                                 :enabled-extension-names extensions
+                                 :enabled-features
+                                 (vk:make-physical-device-features
+                                  :pipeline-statistics-query pipeline-statistics-p))))
               (setf device (vk:create-device physical-device device-info))
               (setf command-pool
                     (vk:create-command-pool
@@ -332,6 +349,9 @@
                      :device device :queue (vk:get-device-queue device queue-family 0)
                      :present-queue (vk:get-device-queue device queue-family 0)
                      :queue-family queue-family :present-queue-family queue-family
+                     :timestamp-period-ns timestamp-period
+                     :timestamp-valid-bits timestamp-valid-bits
+                     :pipeline-statistics-query-supported-p pipeline-statistics-p
                      :command-pool command-pool
                      :memory-properties
                      (vk:get-physical-device-memory-properties physical-device)

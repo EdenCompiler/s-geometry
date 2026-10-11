@@ -14,8 +14,8 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   ;; CFFI precisa conhecer a biblioteca antes da macroexpansão de DEFCFUN.
   (cffi:define-foreign-library %openal-library
+    (:darwin (:or "libopenal.1.dylib" "libopenal.dylib" (:framework "OpenAL")))
     (:unix (:or "libopenal.so.1" "libopenal.so"))
-    (:darwin (:framework "OpenAL"))
     (:windows "OpenAL32.dll")
     (t "libopenal.so.1")))
 

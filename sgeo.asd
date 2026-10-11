@@ -63,7 +63,7 @@
   :components ((:file "src/debug/package") (:file "src/debug/debug")))
 (asdf:defsystem #:sgeo/simulation
   :description "Fases do mundo, relógio fixo, eventos, agenda e índice espacial."
-  :depends-on (#:sgeo #:sgeo/input #:sgeo/physics #:sgeo/audio #:sgeo/debug) :serial t
+  :depends-on (#:sgeo #:sgeo/input #:sgeo/physics #:sgeo/audio #:sgeo/debug #:sgeo/diagnostics) :serial t
   :components ((:file "src/simulation/package") (:file "src/simulation/events")
                (:file "src/simulation/spatial") (:file "src/simulation/loop")
                (:file "src/simulation/api")))
@@ -90,7 +90,7 @@
 
 (asdf:defsystem #:sgeo/render
   :description "Protocolo de renderização sobre instantâneos do mundo Lisp."
-  :depends-on (#:sgeo/scene #:sgeo/platform #:sgeo/shader #:bordeaux-threads)
+  :depends-on (#:sgeo/scene #:sgeo/platform #:sgeo/shader #:sgeo/diagnostics #:bordeaux-threads)
   :serial t
   :components ((:file "src/render/package") (:file "src/render/render")
                (:file "src/render/graph") (:file "src/render/hot-reload")
@@ -102,7 +102,7 @@
   :serial t
   :components ((:file "backends/opengl/package")
                (:file "backends/opengl/glfw")
-               (:file "backends/opengl/opengl")))
+               (:file "backends/opengl/opengl") (:file "backends/opengl/profiling")))
 
 (asdf:defsystem #:sgeo/backend/vulkan
   :description "Backend Vulkan: recursos, passes HDR/PBR e apresentação GLFW."
@@ -110,7 +110,7 @@
 
 (asdf:defsystem #:sgeo/runtime/core
   :description "Laço gráfico e REPL externo sobre o mesmo mundo vivo."
-  :depends-on (#:sgeo #:sgeo/simulation #:sgeo/render #:bordeaux-threads)
+  :depends-on (#:sgeo #:sgeo/simulation #:sgeo/render #:sgeo/diagnostics #:bordeaux-threads)
   :serial t
   :components ((:file "src/runtime/package") (:file "src/runtime/runtime")
                (:file "src/runtime-api")))
@@ -156,6 +156,36 @@
   :components ((:file "src/serialization/package") (:file "src/serialization/serialization")
                (:file "src/serialization/animation")))
 
+(asdf:defsystem #:sgeo/assets
+  :description "Compilação determinística e caches portáveis de ativos."
+  :depends-on (#:bordeaux-threads #:ironclad) :serial t
+  :components ((:file "src/assets/package") (:file "src/assets/compiler")))
+
+(asdf:defsystem #:sgeo/assets/importers
+  :description "Importadores de desenvolvimento para produtos canônicos de cena."
+  :depends-on (#:sgeo/assets #:sgeo/serialization #:sgeo/gltf #:sgeo/shader)
+  :components ((:file "src/assets/importers")))
+
+(asdf:defsystem #:sgeo/diagnostics
+  :description "Perfil CPU, alocação e linha temporal de diagnósticos."
+  :depends-on (#:bordeaux-threads) :serial t
+  :components ((:file "src/diagnostics/package") (:file "src/diagnostics/profiler")))
+
+(asdf:defsystem #:sgeo/deployment
+  :description "Builds release SBCL e empacotamento nativo de aplicações desktop."
+  :depends-on (#:sgeo/assets #:sgeo/diagnostics #:cffi #:ironclad) :serial t
+  :components ((:file "src/deployment/package") (:file "src/deployment/packaging")
+               (:file "src/deployment/licenses") (:file "src/deployment/build")))
+
+(asdf:defsystem #:sgeo/game
+  :description "Partida standalone alimentada pelos ativos compilados."
+  :depends-on (#:sgeo/examples/simulation #:sgeo/serialization #:sgeo/deployment #:sgeo/runtime/core #:babel)
+  :components ((:file "examples/simulation/standalone")))
+
+(asdf:defsystem #:sgeo/game/opengl
+  :description "Executável de jogo com OpenGL e saída OpenAL opcional, sem editor."
+  :depends-on (#:sgeo/game #:sgeo/runtime #:sgeo/audio/openal))
+
 (asdf:defsystem #:sgeo/editor
   :description "Comandos, transações, seleção e listener do editor vivo."
   :depends-on (#:sgeo #:sgeo/serialization #:sgeo/gltf)
@@ -168,7 +198,8 @@
 
 (asdf:defsystem #:sgeo/tests
   :description "Testes headless do núcleo e da cena."
-  :depends-on (#:sgeo #:sgeo/editor #:sgeo/render #:sgeo/examples/simulation #:sgeo/runtime/core #:fiveam)
+  :depends-on (#:sgeo #:sgeo/editor #:sgeo/render #:sgeo/examples/simulation #:sgeo/runtime/core
+               #:sgeo/assets/importers #:sgeo/diagnostics #:sgeo/deployment #:sgeo/game #:fiveam)
   :serial t
   :components ((:file "tests/package") (:file "tests/core-math")
                (:file "tests/geometry-scene") (:file "tests/kernel-topology")
@@ -183,7 +214,9 @@
                (:file "tests/gltf") (:file "tests/gltf-validation")
                (:file "tests/input") (:file "tests/physics") (:file "tests/audio")
                (:file "tests/debug-draw") (:file "tests/simulation") (:file "tests/boids")
-               (:file "tests/game") (:file "tests/m6-edge-cases") (:file "tests/runtime-input"))
+               (:file "tests/game") (:file "tests/m6-edge-cases") (:file "tests/runtime-input")
+               (:file "tests/assets") (:file "tests/diagnostics") (:file "tests/packaging")
+               (:file "tests/deployment"))
   :perform (test-op (operation component)
              (declare (ignore operation component))
              (unless (uiop:symbol-call :sgeo.tests :run-tests)
@@ -191,7 +224,7 @@
 
 (asdf:defsystem #:sgeo/editor/opengl
   :description "Editor nativo com OpenGL e atlas de fontes FreeType."
-  :depends-on (#:sgeo/editor #:sgeo/runtime #:cl-freetype2)
+  :depends-on (#:sgeo/editor #:sgeo/runtime #:sgeo/diagnostics #:cl-freetype2)
   :serial t
   :components ((:file "backends/opengl/editor-draw")
                (:file "src/editor/opengl-package") (:file "src/editor/opengl-ui")

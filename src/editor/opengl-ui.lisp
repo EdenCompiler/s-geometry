@@ -15,10 +15,17 @@
   (inspector-scroll 0) (history-scroll 0) (output-scroll 0)
   (workspace-tool nil) (left-width nil) (right-width nil) (bottom-height nil)
   (show-hierarchy-p t) (show-inspector-p t) (show-history-p t) (show-listener-p t)
+  profiler
   (profile-samples nil) (profile-last-bytes 0)
   (viewport-rect nil) (layout-rects nil) (capture-path nil)
   (render-condition nil) (frame 0) (previous-time 0d0)
   (terminal-thread nil) (terminal-stop-flag nil))
+
+(defmacro %with-editor-profile-scope (state name phase &body body)
+  "Mede uma fase do editor somente enquanto o coletor associado estiver ativo."
+  `(sgeo.diagnostics:with-profile-scope
+       (,name :profiler (editor-ui-profiler ,state) :subsystem "editor" :frame-phase ,phase)
+     ,@body))
 
 (defparameter +ui-colors+
   '(:background (0.035 0.045 0.065 1.0)
@@ -977,13 +984,14 @@
                 :gc-time #+sbcl (/ sb-ext:*gc-run-time* internal-time-units-per-second) #-sbcl nil))))
 
 (defun run-editor (world-or-editor &key (width 1280) (height 800) (visible t)
-                                max-frames capture-path frame-hook repl scene-path)
+                                max-frames capture-path frame-hook repl scene-path profiler)
   "Abre a interface nativa sobre um mundo existente ou cria um editor novo."
   (let* ((editor (if (typep world-or-editor 'sgeo.editor:editor-state)
                      world-or-editor
                      (sgeo.editor:make-editor :world world-or-editor
                                               :scene-path (or scene-path "scene.sgeo"))))
-         (state (%make-editor-ui :editor editor :capture-path capture-path))
+         (state (%make-editor-ui :editor editor :capture-path capture-path
+                                 :profiler (or profiler (sgeo.diagnostics:make-profiler :enabled nil))))
          (*active-ui-state* state)
          (world (sgeo.editor:editor-world editor))
          (window nil) (renderer nil) (ui-renderer nil)
@@ -1045,32 +1053,48 @@
                                 (editor-ui-scale-x state) (/ fb-width (max 1d0 window-width))
                                 (editor-ui-scale-y state) (/ fb-height (max 1d0 window-height)))
                           (let* ((now (sgeo.platform:window-time window))
-                                 (dt (max 0d0 (min 0.1d0 (- now (editor-ui-previous-time state))))))
+                                 (dt (max 0d0 (min 0.1d0 (- now (editor-ui-previous-time state)))))
+                                 (profile-collector (editor-ui-profiler state)))
                             (setf (editor-ui-previous-time state) now)
-                            (handler-case (sgeo.editor:advance-editor-time editor dt)
-                              (error (condition) (setf (editor-ui-render-condition state) condition)))
-                            (when (and (plusp fb-width) (plusp fb-height))
-                            (let ((start now))
-                              (gl:clear-color 0.025 0.03 0.045 1.0)
-                              (gl:clear :color-buffer-bit :depth-buffer-bit)
-                              (let* ((layout (%make-layout state fb-width fb-height))
-                                     (viewport (getf layout :viewport)))
-                                (when (plusp (third viewport))
-                                  (sgeo.backend.opengl:render-viewport renderer world
-                                                                       (first viewport)
-                                                                       (- fb-height (second viewport)
-                                                                          (fourth viewport))
-                                                                       (third viewport) (fourth viewport))))
-                              (%draw-ui state)
-                              (%update-profile state (- (sgeo.platform:window-time window) start) dt))
-                          (when frame-hook
-                            (handler-case (funcall frame-hook editor window renderer frame)
-                              (error (condition) (setf (editor-ui-render-condition state) condition))))
-                          (when (and capture-path
-                                     (if max-frames (= (1+ frame) max-frames) (zerop frame)))
-                            (sgeo.backend.opengl:capture-framebuffer-ppm window capture-path)
-                            (setf capture-path nil))
-                          (sgeo.platform:swap-buffers window))))
+                            (unless profiler
+                              (setf (sgeo.diagnostics:profiler-enabled-p profile-collector)
+                                    (eq (editor-ui-workspace-tool state) :profile)))
+                            (when (sgeo.diagnostics:profiler-enabled-p profile-collector)
+                              (sgeo.diagnostics:begin-frame profile-collector "editor"))
+                            (unwind-protect
+                                 (progn
+                                   (%with-editor-profile-scope state "editor/update" :update
+                                     (handler-case (sgeo.editor:advance-editor-time editor dt)
+                                       (error (condition)
+                                         (setf (editor-ui-render-condition state) condition))))
+                                   (when (and (plusp fb-width) (plusp fb-height))
+                                     (let ((start now))
+                                       (gl:clear-color 0.025 0.03 0.045 1.0)
+                                       (gl:clear :color-buffer-bit :depth-buffer-bit)
+                                       (let* ((layout (%make-layout state fb-width fb-height))
+                                              (viewport (getf layout :viewport)))
+                                         (when (plusp (third viewport))
+                                           (%with-editor-profile-scope state "editor/viewport" :render
+                                             (sgeo.backend.opengl:render-viewport
+                                              renderer world (first viewport)
+                                              (- fb-height (second viewport) (fourth viewport))
+                                              (third viewport) (fourth viewport)))))
+                                       (%with-editor-profile-scope state "editor/ui" :ui
+                                         (%draw-ui state))
+                                       (%update-profile
+                                        state (- (sgeo.platform:window-time window) start) dt)))
+                                   (when frame-hook
+                                     (%with-editor-profile-scope state "editor/frame-hook" :frame-hook
+                                       (handler-case (funcall frame-hook editor window renderer frame)
+                                         (error (condition)
+                                           (setf (editor-ui-render-condition state) condition)))))
+                                   (when (and capture-path
+                                              (if max-frames (= (1+ frame) max-frames) (zerop frame)))
+                                     (sgeo.backend.opengl:capture-framebuffer-ppm window capture-path)
+                                     (setf capture-path nil))
+                                   (sgeo.platform:swap-buffers window))
+                              (when (sgeo.diagnostics:profiler-enabled-p profile-collector)
+                                (sgeo.diagnostics:end-frame profile-collector)))))
                       (incf frame)
                       (when (and max-frames (>= frame max-frames))
                         (sgeo.platform:request-window-close window)))

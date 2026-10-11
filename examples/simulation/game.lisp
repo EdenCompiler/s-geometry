@@ -24,6 +24,8 @@
 (defvar *game* nil
   "Estado do último jogo criado, disponível para inspeção no REPL.")
 
+(defvar *game-geometry-provider* nil)
+
 (defun game-player (game) (game-state-player game))
 (defun game-player-body (game) (game-state-player-body game))
 (defun game-score (game) (game-state-score game))
@@ -61,13 +63,17 @@
 
 (defun %game-box-object (name position dimensions color)
   (sgeo.scene:make-mesh-object
-   (sgeo.geometry:make-box :size 1d0 :name name)
+   (if *game-geometry-provider*
+       (funcall *game-geometry-provider* :box 1d0 name)
+       (sgeo.geometry:make-box :size 1d0 :name name))
    :name name :position position :scale dimensions
    :material (sgeo.scene:make-material :name (format nil "~A color" name) :color color)))
 
 (defun %game-sphere-object (name position radius color)
   (sgeo.scene:make-mesh-object
-   (sgeo.geometry:make-sphere :radius radius :segments 16 :rings 8 :name name)
+   (if *game-geometry-provider*
+       (funcall *game-geometry-provider* :sphere radius name)
+       (sgeo.geometry:make-sphere :radius radius :segments 16 :rings 8 :name name))
    :name name :position position
    :material (sgeo.scene:make-material :name (format nil "~A color" name) :color color)))
 
@@ -266,9 +272,10 @@
     (sgeo.debug:debug-aabb world (sgeo.physics:body-bounds (game-state-player-body game))
                            :color #(0.2d0 1d0 0.3d0) :duration 0.1d0)))
 
-(defun make-game-world ()
+(defun make-game-world (&key geometry-provider audio-buffer)
   "Cria o jogo tridimensional e retorna WORLD; o segundo valor é seu estado REPL."
-  (let* ((world (sgeo.scene:make-world
+  (let* ((*game-geometry-provider* geometry-provider)
+         (world (sgeo.scene:make-world
                  :camera (sgeo.scene:make-camera :eye (sgeo.math:vec3 0d0 11d0 12d0)
                                                  :target (sgeo.math:vec3 0d0 0d0 0d0))))
          (physics (sgeo.physics:make-physics-world :gravity (sgeo.math:vec3 0d0 -9.81d0 0d0)))
@@ -316,7 +323,7 @@
                        :motion-type :dynamic :mass 1d0 :friction 0.8d0 :restitution 0d0))
     (sgeo.physics:add-body physics player-body)
     (let* ((mixer (sgeo.audio:make-audio-mixer :listener (sgeo.audio:make-listener :object player)))
-           (tone (sgeo.audio:make-tone-buffer 880d0 0.09d0))
+           (tone (or audio-buffer (sgeo.audio:make-tone-buffer 880d0 0.09d0)))
            (collect-source (sgeo.audio:make-audio-source :buffer tone :object player :gain 0.28d0))
            (door-source (sgeo.audio:make-audio-source :buffer tone :object player :gain 0.2d0))
            (simulation (sgeo.simulation:attach-simulation world :input input :physics physics :audio mixer))

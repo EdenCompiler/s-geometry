@@ -62,6 +62,13 @@
 (defparameter +simulation-phases+
   '(:input :pre-update :fixed-update :post-physics :variable-update :animation
     :transforms :spatial :audio :post-update))
+(defmacro %with-profiled-phase (phase &body body)
+  "Adiciona contexto de fase sem calcular rótulos quando não há profiler ativo."
+  `(sgeo.diagnostics:with-profile-scope
+       ((string-downcase (symbol-name ,phase)) :subsystem "simulation"
+        :function (format nil "simulation/~(~A~)" ,phase) :frame-phase ,phase)
+     ,@body))
+
 (defun add-phase-hook (state phase function)
   "Registra um hook (WORLD STATE DT); retorna a função usada para remoção."
   (unless (and (member phase +simulation-phases+) (functionp function))
@@ -74,7 +81,9 @@
 (defgeneric run-simulation-phase (world state phase dt)
   (:documentation "Ponto de extensão das fases ordenadas de um quadro."))
 (defmethod run-simulation-phase (world (state simulation-state) phase dt)
-  (dolist (hook (copy-list (gethash phase (%phase-hooks state)))) (funcall hook world state dt)))
+  (%with-profiled-phase phase
+    (dolist (hook (copy-list (gethash phase (%phase-hooks state))))
+      (funcall hook world state dt))))
 (defgeneric fixed-update-object (object world dt)
   (:documentation "Atualização de jogo em passos fixos; métodos permanecem redefiníveis."))
 (defmethod fixed-update-object ((object sgeo.scene:scene-object) world dt)
@@ -135,39 +144,49 @@
 (defmethod sgeo.scene:advance-scene-frame ((world sgeo.scene:world) (state simulation-state) dt)
   "Mapeia entrada, simula passos fixos, atualiza objetos/animação e extrai índices."
   (let ((dt (%positive-time dt t)))
-    (sgeo.input:begin-input-frame (simulation-input state))
+    (%with-profiled-phase :input
+      (sgeo.input:begin-input-frame (simulation-input state)))
     (unwind-protect
          (progn
            (run-simulation-phase world state :input dt)
-           (dispatch-events (simulation-events state))
+           (%with-profiled-phase :event-dispatch
+             (dispatch-events (simulation-events state)))
            (run-simulation-phase world state :pre-update dt)
            (incf (slot-value state 'frame-time) dt)
            (unless (simulation-paused-p state) (incf (slot-value state 'accumulator) dt))
            (let ((step (simulation-fixed-dt state)))
-             (loop repeat (simulation-max-steps state)
-                   while (and (not (simulation-paused-p state))
-                              (>= (+ (simulation-accumulator state) 1d-12) step)) do
-               (%run-tasks world state)
-               (run-simulation-phase world state :fixed-update step)
-               (dolist (object (%enabled-objects world)) (fixed-update-object object world step))
-               (when (simulation-physics state) (sgeo.physics:step-physics (simulation-physics state) step))
-               (incf (slot-value state 'time) step)
-               (incf (slot-value state 'step-count))
-               (setf (slot-value state 'accumulator) (max 0d0 (- (simulation-accumulator state) step)))
-               (run-simulation-phase world state :post-physics step)
-               (dispatch-events (simulation-events state))))
+             (%with-profiled-phase :fixed-update
+               (loop repeat (simulation-max-steps state)
+                     while (and (not (simulation-paused-p state))
+                                (>= (+ (simulation-accumulator state) 1d-12) step)) do
+                 (%with-profiled-phase :tasks (%run-tasks world state))
+                 (run-simulation-phase world state :fixed-update step)
+                 (%with-profiled-phase :object-update
+                   (dolist (object (%enabled-objects world)) (fixed-update-object object world step)))
+                 (when (simulation-physics state)
+                   (%with-profiled-phase :physics
+                     (sgeo.physics:step-physics (simulation-physics state) step)))
+                 (incf (slot-value state 'time) step)
+                 (incf (slot-value state 'step-count))
+                 (setf (slot-value state 'accumulator) (max 0d0 (- (simulation-accumulator state) step)))
+                 (run-simulation-phase world state :post-physics step)
+                 (%with-profiled-phase :event-dispatch
+                   (dispatch-events (simulation-events state))))))
            (run-simulation-phase world state :variable-update dt)
-           (sgeo.scene:update-scene-objects world dt)
+           (%with-profiled-phase :object-update
+             (sgeo.scene:update-scene-objects world dt))
            (run-simulation-phase world state :animation dt)
-           (sgeo.scene:update-world-animations world (if (simulation-paused-p state) 0d0 dt))
+           (%with-profiled-phase :animation-sampling
+             (sgeo.scene:update-world-animations world (if (simulation-paused-p state) 0d0 dt)))
            (run-simulation-phase world state :transforms dt)
-           (%update-spatial world state)
+           (%with-profiled-phase :spatial-index (%update-spatial world state))
            (run-simulation-phase world state :spatial dt)
            (when (simulation-audio state)
-             (let* ((frames (+ (%audio-fraction state) (* dt (sgeo.audio:mixer-sample-rate (simulation-audio state)))))
-                    (whole (floor frames)))
-               (setf (%audio-fraction state) (- frames whole)
-                     (slot-value state 'audio-samples) (sgeo.audio:mixer-render (simulation-audio state) whole))))
+             (%with-profiled-phase :audio-mix
+               (let* ((frames (+ (%audio-fraction state) (* dt (sgeo.audio:mixer-sample-rate (simulation-audio state)))))
+                      (whole (floor frames)))
+                 (setf (%audio-fraction state) (- frames whole)
+                       (slot-value state 'audio-samples) (sgeo.audio:mixer-render (simulation-audio state) whole)))))
            (run-simulation-phase world state :audio dt)
            (run-simulation-phase world state :post-update dt))
       (sgeo.input:end-input-frame (simulation-input state))))

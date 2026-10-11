@@ -40,6 +40,8 @@
    (image-states :initform (make-hash-table :test #'eq) :reader %image-states)
    (last-frame-pixels :initform nil :accessor %last-frame-pixels)
    (device-name :initform nil :accessor %renderer-device-name)
+   (timestamp-query-pool :initform nil :accessor %timestamp-query-pool)
+   (pipeline-query-pool :initform nil :accessor %pipeline-query-pool)
    (validation-enabled :initform nil :accessor %renderer-validation-enabled)
    (acquire-wait-pending-p :initform nil :accessor %acquire-wait-pending-p)
    (needs-recovery-p :initform nil :accessor %needs-recovery-p)
@@ -612,6 +614,94 @@
         (%renderer-validation-enabled renderer) sgeo.render:*graphics-validation*)
   renderer)
 
+(defun %ensure-profile-query-pools (renderer)
+  "Cria queries sob demanda; o modo sem profiler não aloca recursos GPU."
+  (let* ((context (%renderer-context renderer))
+         (device (context-device context))
+         (new-timestamp nil) (new-pipeline nil))
+    (unwind-protect
+         (progn
+           (when (and (plusp (context-timestamp-valid-bits context))
+                      (not (%timestamp-query-pool renderer)))
+             (setf new-timestamp
+                   (vk:create-query-pool
+                    device (vk:make-query-pool-create-info :query-type :timestamp :query-count 2))))
+           (when (and (context-pipeline-statistics-query-supported-p context)
+                      (not (%pipeline-query-pool renderer)))
+             (setf new-pipeline
+                   (vk:create-query-pool
+                    device (vk:make-query-pool-create-info
+                            :query-type :pipeline-statistics :query-count 1
+                            :pipeline-statistics '(:input-assembly-primitives
+                                                   :vertex-shader-invocations
+                                                   :fragment-shader-invocations)))))
+           (when new-timestamp
+             (setf (%timestamp-query-pool renderer) new-timestamp new-timestamp nil))
+           (when new-pipeline
+             (setf (%pipeline-query-pool renderer) new-pipeline new-pipeline nil)))
+      (when new-timestamp (ignore-errors (vk:destroy-query-pool device new-timestamp)))
+      (when new-pipeline (ignore-errors (vk:destroy-query-pool device new-pipeline)))))
+  renderer)
+
+(defun %begin-profile-queries (renderer command active-p)
+  (when active-p
+    (%ensure-profile-query-pools renderer)
+    (when (%timestamp-query-pool renderer)
+      (vk:cmd-reset-query-pool command (%timestamp-query-pool renderer) 0 2)
+      (vk:cmd-write-timestamp command :top-of-pipe (%timestamp-query-pool renderer) 0))
+    (when (%pipeline-query-pool renderer)
+      (vk:cmd-reset-query-pool command (%pipeline-query-pool renderer) 0 1)
+      (vk:cmd-begin-query command (%pipeline-query-pool renderer) 0)))
+  active-p)
+
+(defun %end-profile-queries (renderer command active-p)
+  (when active-p
+    (when (%pipeline-query-pool renderer)
+      (vk:cmd-end-query command (%pipeline-query-pool renderer) 0))
+    (when (%timestamp-query-pool renderer)
+      (vk:cmd-write-timestamp command :bottom-of-pipe (%timestamp-query-pool renderer) 1)))
+  active-p)
+
+(defun %timestamp-duration-ns (renderer)
+  (let* ((context (%renderer-context renderer))
+         (bits (context-timestamp-valid-bits context))
+         (period (context-timestamp-period-ns context)))
+    (when (and (%timestamp-query-pool renderer) (plusp bits) (plusp period))
+      (cffi:with-foreign-object (data :uint64 2)
+        (let ((status (vk:get-query-pool-results
+                       (context-device context) (%timestamp-query-pool renderer)
+                       0 2 16 data 8 '(:64))))
+          (when (eq status :success)
+            (let* ((start (cffi:mem-aref data :uint64 0))
+                   (end (cffi:mem-aref data :uint64 1))
+                   (mask (if (>= bits 64) #xffffffffffffffff (1- (ash 1 bits))))
+                   (ticks (logand (- end start) mask)))
+              (round (* ticks period)))))))))
+
+(defun %pipeline-statistics (renderer)
+  (when (%pipeline-query-pool renderer)
+    (let* ((context (%renderer-context renderer))
+           (device (context-device context)))
+      (cffi:with-foreign-object (data :uint64 3)
+        (let ((status (vk:get-query-pool-results
+                       device (%pipeline-query-pool renderer) 0 1 24 data 24
+                       '(:64))))
+          (when (eq status :success)
+            (list :input-primitives (cffi:mem-aref data :uint64 0)
+                  :vertex-shader-invocations (cffi:mem-aref data :uint64 1)
+                  :fragment-shader-invocations (cffi:mem-aref data :uint64 2))))))))
+
+(defun %record-profile-query-results (renderer profiler)
+  (let ((frame (sgeo.diagnostics:current-frame profiler)))
+    (let ((duration (%timestamp-duration-ns renderer)))
+      (when duration
+        (sgeo.diagnostics:record-gpu-sample profiler "Vulkan frame" duration
+                                            :subsystem "renderer" :frame frame)))
+    (let ((counters (%pipeline-statistics renderer)))
+      (when counters
+        (sgeo.diagnostics:record-pipeline-statistics
+         profiler counters :frame frame :subsystem "renderer" :backend "vulkan")))))
+
 (defun %initialize-renderer (window width height)
   "Entrega somente um renderer completo; falhas liberam o contexto parcial."
   (let ((context nil) (renderer nil))
@@ -743,6 +833,8 @@
                     world :aspect (/ (float width 1d0) (max height 1))
                     :shadow-size (%shadow-size renderer)))
          (objects (getf snapshot :objects))
+         (profiler (sgeo.diagnostics:current-profiler))
+         (profile-active-p (and profiler (sgeo.diagnostics:profiler-enabled-p profiler)))
          (image-index nil) (command nil) (uniforms nil) (acquire-status nil)
          (complete nil) (submitted nil) (saved-layouts nil) (saved-states nil)
          (saved-proxy-layout :undefined))
@@ -769,6 +861,7 @@
              (%make-descriptors renderer snapshot objects)
            (setf uniforms allocated-uniforms
                  command (begin-command-buffer context :one-time t))
+             (%begin-profile-queries renderer command profile-active-p)
              (dolist (program (list (%shadow-program renderer)
                                     (%pbr-program renderer) (%tone-program renderer)))
                (when program
@@ -826,10 +919,13 @@
                    (%copy-output renderer command)
                    (when surface-p (%record-swapchain-blit renderer command image-index)))))
               :transition (lambda (barrier) (%graph-transition renderer command barrier)))
+             (%end-profile-queries renderer command profile-active-p)
              (%submit-frame renderer command)
              (setf command nil submitted t
                    (%last-frame-pixels renderer)
                    (read-buffer (%readback-buffer renderer)))
+             (when profile-active-p
+               (%record-profile-query-results renderer profiler))
              (when surface-p
                (let ((result (present-frame context image-index
                                             :wait-semaphores (list (%present-ready renderer)))))
@@ -876,6 +972,12 @@
   (unless (%renderer-closed-p renderer)
     (let* ((context (%renderer-context renderer)) (device (context-device context)))
       (vk:device-wait-idle device)
+      (when (%timestamp-query-pool renderer)
+        (vk:destroy-query-pool device (%timestamp-query-pool renderer))
+        (setf (%timestamp-query-pool renderer) nil))
+      (when (%pipeline-query-pool renderer)
+        (vk:destroy-query-pool device (%pipeline-query-pool renderer))
+        (setf (%pipeline-query-pool renderer) nil))
       (%destroy-render-programs renderer)
       (when (%descriptor-pool renderer) (vk:destroy-descriptor-pool device (%descriptor-pool renderer)))
       (when (%readback-buffer renderer) (destroy-buffer (%readback-buffer renderer)))
@@ -931,6 +1033,16 @@
           :gpu-meshes (hash-table-count (%geometry-cache renderer))
           :closed-p (%renderer-closed-p renderer)
           :validation (%renderer-validation-enabled renderer)
+          :profiling (list :gpu-timestamps
+                           (if (plusp (context-timestamp-valid-bits (%renderer-context renderer)))
+                               "available" "unavailable")
+                           :timestamp-period-ns
+                           (context-timestamp-period-ns (%renderer-context renderer))
+                           :timestamp-valid-bits
+                           (context-timestamp-valid-bits (%renderer-context renderer))
+                           :gpu-pipeline-statistics
+                           (if (context-pipeline-statistics-query-supported-p
+                                (%renderer-context renderer)) "available" "unavailable"))
           :validation-messages (context-validation-messages (%renderer-context renderer))
           :shader-generations
           (list :shadow (generation (%shadow-program renderer))
@@ -940,3 +1052,9 @@
           (list :shadow (shader-error (%shadow-program renderer))
                 :pbr (shader-error (%pbr-program renderer))
                 :tone (shader-error (%tone-program renderer))))))
+
+(defmethod sgeo.render:drain-renderer-profile ((renderer vulkan-renderer) &key wait)
+  "Queries read after each synchronous submission; WAIT is already satisfied."
+  (when (and wait (not (%renderer-closed-p renderer)))
+    (vk:queue-wait-idle (context-queue (%renderer-context renderer))))
+  nil)

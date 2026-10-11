@@ -8,7 +8,7 @@ The first target is **Linux with SBCL**, using **cl-glfw3, cl-opengl and CFFI** 
 
 The architecture is described in [Modern S-Geometry in Pure Common Lisp](modern-s-geometry-design.md). This roadmap preserves its M0–M8 milestone numbering and divides M3 into an initial editor and later expansion.
 
-**Implementation status:** M0, M1, M2, M3a, M3b, M4, M5 and M6 are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). See [M4 verification evidence](m4-implementation.md) for the shader compiler and Vulkan viewer, and [M5 verification evidence](m5-implementation.md) for animation and glTF. See [M6 verification evidence](m6-implementation.md) for simulation and the game examples. M7–M8 remain **Not started**.
+**Implementation status:** M0, M1, M2, M3a, M3b, M4, M5 and M6 are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). See [M4 verification evidence](m4-implementation.md) for the shader compiler and Vulkan viewer, and [M5 verification evidence](m5-implementation.md) for animation and glTF. See [M6 verification evidence](m6-implementation.md) for simulation and the game examples. M7 is **In progress**; M8 is **Not started**.
 
 Architectural commitments:
 
@@ -107,7 +107,7 @@ The first kernel supports **orientable manifold solids and open surfaces**, with
 
 ## Later milestones
 
-These milestones are **outside the first usable release**. M3b extends the editor, M4 adds the modern renderer, and M5 adds animation and glTF interchange; all three are complete. M6 adds simulation and game services and is complete. M7–M8 remain future goals. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
+These milestones are **outside the first usable release**. M3b extends the editor, M4 adds the modern renderer, and M5 adds animation and glTF interchange; all three are complete. M6 adds simulation and game services and is complete. M7 is in progress; M8 remains a future goal. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
 
 ### M3b — Editor expansion
 
@@ -170,16 +170,18 @@ These milestones are **outside the first usable release**. M3b extends the edito
 
 ### M7 — Deployment
 
-**Status:** Not started. **Release:** Later.
+**Status:** In progress. **Release:** Later.
 
-- [ ] Implement release builds and standalone application generation.
-- [ ] Add deterministic asset compilation and disposable packed caches.
+- [x] Implement release builds and standalone application generation.
+- [x] Add deterministic asset compilation and disposable packed caches.
 - [ ] Establish Windows, Linux, and macOS packaging and platform validation.
-- [ ] Add profiling and deployment diagnostics.
-- [ ] Ship an example game without requiring the development editor.
-- [ ] Pass asset and packaging checks and demonstrate the standalone game.
+- [x] Add profiling and deployment diagnostics.
+- [x] Ship an example game without requiring the development editor.
+- [x] Pass asset and packaging checks and demonstrate the standalone game.
 
 **Exit criterion:** The example game runs standalone without the development editor.
+
+**Verification so far:** 2,474 headless checks pass. The relocated Linux release completes 240 headless and 240 rendered frames with its source tree, Quicklisp, SBCL installation, and installed GLFW/OpenAL files unavailable. OpenGL, Vulkan, and editor profiling demonstrations pass. Windows and macOS native validation remains pending. See [M7 implementation and verification](m7-implementation.md) and the [deployment guide](deployment.md).
 
 ### M8 — Advanced geometry
 
