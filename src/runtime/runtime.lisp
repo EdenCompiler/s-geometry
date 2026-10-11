@@ -28,6 +28,22 @@
              (format nil "~A — ~A" base-title (sgeo.core:object-name object))
              base-title)))
 
+(defmacro %with-profiled-frame ((profiler phase) &body body)
+  "Executa um frame e garante seu fechamento mesmo quando o corpo sinaliza erro."
+  (let ((collector (gensym "PROFILER")) (frame (gensym "FRAME"))
+        (frame-phase (gensym "PHASE")))
+    `(let* ((,collector ,profiler)
+            (,frame-phase ,phase)
+            (,frame (when ,collector
+                      (sgeo.diagnostics:begin-frame ,collector ,frame-phase))))
+       (unwind-protect
+            (sgeo.diagnostics:with-profile-scope
+                ("runtime/frame" :profiler ,collector :subsystem :runtime
+                                 :frame-phase ,frame-phase)
+              ,@body)
+         (when ,collector
+           (sgeo.diagnostics:end-frame ,collector ,frame ,frame-phase))))))
+
 (defun %pick-at-cursor (world window base-title)
   (multiple-value-bind (x y) (sgeo.platform:window-cursor-position window)
     (multiple-value-bind (width height) (sgeo.platform:window-size window)
@@ -195,8 +211,7 @@
                       (unless (eq input current)
                         (when input (sgeo.input:clear-input-state input))
                         (setf input current)))
-                    (when profiler (sgeo.diagnostics:begin-frame profiler))
-                    (sgeo.diagnostics:with-profile-scope ("runtime/frame" :profiler profiler :subsystem :runtime)
+                    (%with-profiled-frame (profiler "frame")
                     (sgeo.diagnostics:with-profile-scope ("platform/poll" :subsystem :platform :frame-phase :input)
                     (sgeo.platform:poll-events window)
                     (%poll-gamepad-input window input)
@@ -233,7 +248,6 @@
                       (sgeo.diagnostics:with-profile-scope ("platform/present" :subsystem :platform :frame-phase :present)
                         (sgeo.platform:swap-buffers window)))
                     )
-                    (when profiler (sgeo.diagnostics:end-frame profiler))
                     (incf frame)
                     (when (and max-frames (>= frame max-frames))
                       (sgeo.platform:request-window-close window)))

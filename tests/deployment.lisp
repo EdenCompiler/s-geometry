@@ -57,6 +57,57 @@
       (when (probe-file root)
         (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))))
 
+(test deployment-release-library-records-follow-renamed-native-mappings
+  (let* ((root (%deployment-test-root))
+         (custom (%deployment-write-file root #P"source/libfixture.so" "fixture"))
+         (host (%deployment-write-file root #P"system/libsystem.so" "host"))
+         (native (sgeo.deployment::%normalize-native-inputs
+                  (list (cons custom "renamed-fixture.so"))))
+         (records (sgeo.deployment::%release-library-records
+                   (list (list 'custom-fixture custom)
+                         (list 'host-library host)
+                         ;; Loader-only sonames are not filesystem paths.
+                         (list 'bare-host-library "libnot-installed-on-build-host.so"))
+                   native))
+         (custom-record (find 'custom-fixture records
+                              :key (lambda (record) (getf record :name))))
+         (host-record (find 'host-library records
+                            :key (lambda (record) (getf record :name))))
+         (bare-host-record (find 'bare-host-library records
+                                 :key (lambda (record) (getf record :name)))))
+    (unwind-protect
+         (progn
+           (is (equal "renamed-fixture.so" (getf custom-record :filename)))
+           (is (getf custom-record :bundled-p))
+           (is (equal "libsystem.so" (getf host-record :filename)))
+           (is (not (getf host-record :bundled-p)))
+           (is (equal "libnot-installed-on-build-host.so"
+                      (getf bare-host-record :filename)))
+           (is (not (getf bare-host-record :bundled-p)))
+           (let ((cffi:*foreign-library-directories* nil))
+             (signals error
+               (sgeo.deployment::%restore-release-libraries
+                (merge-pathnames #P"missing-libraries/" root)
+                (list custom-record)))))
+      (when (probe-file root)
+        (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))))
+
+(test deployment-registers-lazy-openal-from-renamed-native-mapping
+  (let* ((root (%deployment-test-root))
+         (source (%deployment-write-file root #P"source/libopenal-fixture.so" "fixture")))
+    (unwind-protect
+         (progn
+           (let* ((native (sgeo.deployment::%normalize-native-inputs
+                           (list (cons source "renamed-audio.so"))))
+                  (records (sgeo.deployment::%register-lazy-openal-library nil native))
+                  (record (find (find-symbol "%OPENAL-LIBRARY" :sgeo.audio.openal)
+                                records :key (lambda (item) (getf item :name)) :test #'eq)))
+             (is (not (null record)))
+             (is (equal "renamed-audio.so" (getf record :filename)))
+             (is (getf record :bundled-p))))
+      (when (probe-file root)
+        (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))))
+
 (test deployment-resource-path-uses-host-layout-and-rejects-traversal
   (let* ((root (%deployment-test-root))
          (sgeo.deployment:*application-directory* root)

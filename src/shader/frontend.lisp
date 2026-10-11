@@ -621,7 +621,7 @@
 
 (defun %components (value)
   (cond ((and (arrayp value) (> (array-rank value) 1))
-         (loop for i below (array-dimension value 0) collect (aref value i)))
+         (loop for i below (array-total-size value) collect (row-major-aref value i)))
         ((and (vectorp value) (not (stringp value))) (coerce value 'list))
         ((listp value) value)
         (t nil)))

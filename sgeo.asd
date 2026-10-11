@@ -199,7 +199,8 @@
 (asdf:defsystem #:sgeo/tests
   :description "Testes headless do núcleo e da cena."
   :depends-on (#:sgeo #:sgeo/editor #:sgeo/render #:sgeo/examples/simulation #:sgeo/runtime/core
-               #:sgeo/assets/importers #:sgeo/diagnostics #:sgeo/deployment #:sgeo/game #:fiveam)
+               #:sgeo/assets/importers #:sgeo/diagnostics #:sgeo/deployment #:sgeo/game
+               #:sgeo/audio/openal #:fiveam)
   :serial t
   :components ((:file "tests/package") (:file "tests/core-math")
                (:file "tests/geometry-scene") (:file "tests/kernel-topology")

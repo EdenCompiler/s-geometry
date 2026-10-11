@@ -130,7 +130,7 @@
                      (string= hash (getf dependency :payload-hash))
                      (equalp referenced (getf dependency :bytes)))
           (%fail 'asset-validation-error "External glTF resource ~S differs from its manifest asset." uri))))
-    ;; Import validates references, buffers, materials, meshes, skeletons and animation.
+    ;; A importação valida referências, buffers, materiais, malhas, esqueletos e animação.
     (let ((asset (sgeo.gltf:import-gltf source)))
       (%canonical-scene-bytes (sgeo.gltf:gltf-world asset) :remove-gltf-source-metadata t))))
 

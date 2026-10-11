@@ -64,16 +64,7 @@
                         (:linux (merge-pathnames "lib/" *application-directory*))
                         (:windows *application-directory*)
                         (:macos (merge-pathnames "Frameworks/" *application-directory*)))))
-          (pushnew native cffi:*foreign-library-directories* :test #'equal)
-          (dolist (library *release-libraries*)
-            (let ((bundled (merge-pathnames (cdr library) native)))
-              (when (%bundled-library-p (cdr library))
-                (unless (probe-file bundled)
-                  (error "Bundled library is missing: ~A" bundled))
-                ;; A definição absoluta evita que o loader prefira uma instalação do hospedeiro.
-                (eval `(cffi:define-foreign-library ,(car library)
-                         (t ,(namestring (truename bundled))))))
-              (cffi:load-foreign-library (car library)))))
+          (%restore-release-libraries native *release-libraries*))
         (let ((code (funcall *release-entry-point* (uiop:command-line-arguments))))
           (uiop:quit (if (integerp code) code 0))))
     (error (condition)
@@ -113,7 +104,7 @@
   (loop for library in (cffi:list-foreign-libraries)
         for name = (cffi:foreign-library-name library)
         for path = (cffi:foreign-library-pathname library)
-        when path collect (cons name (file-namestring path))))
+        when path collect (list name path)))
 
 (defun %normalize-native-inputs (entries)
   "Conserva nomes de carga e elimina apenas cópias idênticas da mesma biblioteca."
@@ -129,30 +120,97 @@
           (setf (gethash name seen) source)
           (push (cons (namestring source) name) result))))))
 
+(defun %canonical-native-library-source (source)
+  "Resolve o caminho de uma biblioteca carregada ou seu nome de carga quando possível."
+  (let ((path (or (ignore-errors (truename source))
+                  (let ((resolved (ignore-errors (%resolve-native-library source))))
+                    (and resolved (ignore-errors (truename resolved)))))))
+    (and path (namestring path))))
+
+(defun %native-destination-for-source (source native)
+  "Retorna o nome empacotado que corresponde à origem canônica de SOURCE."
+  (let ((canonical (%canonical-native-library-source source)))
+    (when canonical
+      (cdr (assoc canonical native :test #'equal
+                                   :key (lambda (entry)
+                                          (%canonical-native-library-source entry)))))))
+
+(defun %release-library-record (designator filename bundled-p)
+  (list :name designator :filename filename :bundled-p (not (null bundled-p))))
+
+(defun %release-library-records (loaded native)
+  "Marca explicitamente quais bibliotecas CFFI foram incluídas no pacote."
+  (loop for (designator source) in loaded
+        for destination = (%native-destination-for-source source native)
+        collect (%release-library-record designator
+                                         (or destination (file-namestring source))
+                                         destination)))
+
+(defun %restore-release-libraries (native-directory libraries)
+  "Carrega bibliotecas empacotadas pelo caminho relocável e as demais pelo CFFI."
+  (pushnew native-directory cffi:*foreign-library-directories* :test #'equal)
+  (dolist (library libraries)
+    (let* ((designator (getf library :name))
+           (filename (getf library :filename))
+           (bundled (merge-pathnames filename native-directory)))
+      (when (getf library :bundled-p)
+        (unless (probe-file bundled)
+          (error "Bundled library is missing: ~A" bundled))
+        ;; A definição absoluta evita usar a instalação da máquina de build.
+        (eval `(cffi:define-foreign-library ,designator
+                 (t ,(namestring (truename bundled))))))
+      (cffi:load-foreign-library designator)))
+  libraries)
+
+(defun %loaded-bundled-library-p (record)
+  (%bundled-library-p (file-namestring (second record))))
+
+(defun %native-entry-for-source (source native)
+  (let ((canonical (%canonical-native-library-source source)))
+    (and canonical
+         (find canonical native :test #'equal
+                                 :key (lambda (entry)
+                                        (%canonical-native-library-source (car entry)))))))
+
+(defun %register-lazy-openal-library (libraries native)
+  "Inclui a definição CFFI OpenAL mesmo quando o áudio ainda não foi aberto."
+  (let ((package (find-package :sgeo.audio.openal)))
+    (when package
+      (let ((file (find-if (lambda (entry)
+                             (or (search "openal" (string-downcase (cdr entry)))
+                                 (search "openal" (string-downcase
+                                                    (file-namestring (car entry))))))
+                           native)))
+        (when file
+          (let ((designator (find-symbol "%OPENAL-LIBRARY" package)))
+            (unless (find designator libraries
+                          :key (lambda (record) (getf record :name)) :test #'eq)
+              (push (%release-library-record designator (cdr file) t) libraries)))))))
+  libraries)
+
 (defun %save-release-image (description executable library-list-path)
   "Prepara uma imagem nova sem janelas, threads de jogo ou caminhos de biblioteca ativos."
   (dolist (system (getf description :systems)) (asdf:load-system system))
   (let* ((entry (getf description :entry))
          (symbol (find-symbol (second entry) (or (find-package (first entry))
                                                 (error "Pacote de entrada ausente."))))
-         (libraries (%loaded-library-records))
+         (loaded-libraries (%loaded-library-records))
          (native (getf description :native-libraries)))
     (unless (and symbol (fboundp symbol)) (error "Ponto de entrada não definido: ~S" entry))
     (unless (getf description :debug)
       (when (find-package :sgeo.editor)
         (error 'build-error :message "Uma aplicação release não pode carregar o editor.")))
-    (dolist (library libraries)
-      (when (%bundled-library-p (cdr library))
-        (let ((path (%resolve-native-library (cdr library))))
-          (unless path (error "Biblioteca nativa não localizada: ~A" (cdr library)))
-          (pushnew (cons (namestring (truename path)) (cdr library)) native :test #'equal))))
+    (dolist (library loaded-libraries)
+      (when (%loaded-bundled-library-p library)
+        (let ((path (%resolve-native-library (second library))))
+          (unless path (error "Biblioteca nativa não localizada: ~A" (second library)))
+          (unless (%native-entry-for-source path native)
+            (push (cons (namestring (truename path))
+                        (file-namestring (second library)))
+                  native)))))
     (setf native (%normalize-native-inputs native))
-    (let ((openal-package (find-package :sgeo.audio.openal)))
-      (when openal-package
-        (let ((file (find-if (lambda (entry) (search "openal" (string-downcase (cdr entry)))) native)))
-          (when file
-            (pushnew (cons (find-symbol "%OPENAL-LIBRARY" openal-package) (cdr file))
-                     libraries :key #'car :test #'eq)))))
+    (let ((libraries (%register-lazy-openal-library
+                      (%release-library-records loaded-libraries native) native)))
     (multiple-value-bind (notices diagnostics)
         (write-license-notices (uiop:pathname-directory-pathname library-list-path)
                               :native-libraries native)
@@ -170,7 +228,7 @@
     (setf asdf:*central-registry* nil)
     #+sbcl (sb-ext:save-lisp-and-die executable :executable t :toplevel #'%release-main
                                     :save-runtime-options t :compression t)
-    #-sbcl (error 'build-error :message "A geração de executáveis exige SBCL.")))
+    #-sbcl (error 'build-error :message "A geração de executáveis exige SBCL."))))
 
 (defun %absolute-assets (manifest root)
   "Expande arquivos e diretórios como bytes; manifests explícitos escolhem nome e importador."

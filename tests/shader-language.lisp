@@ -125,6 +125,10 @@
                              (every #'integerp (sgeo.shader:sgir-instruction-operands instruction))))
                       arithmetic))))))
 
+(test shader-cpu-functions-read-multidimensional-array-components
+  (let ((color (make-array '(1 3) :initial-contents '((0.25 0.5 0.75)))))
+    (is (equal '(1.0 2.0 3.0) (shader-triple-product color 2.0 2.0)))))
+
 (test shader-lisp-defshader-registers-inspectable-source
   (let ((definition (sgeo.shader:shader-definition-by-name 'shader-language-macro-check)))
     (is (not (null definition)))

@@ -92,7 +92,7 @@ sbcl --dynamic-space-size 4096 --script tools/pbr-viewer.lisp
 To build the game as a standalone application on Linux:
 
 ```bash
-sbcl --load tools/bootstrap.lisp --eval '(ql:quickload :sgeo/game/opengl)' --quit
+sbcl --load tools/bootstrap.lisp --eval "(ql:quickload '(:sgeo/assets/importers :sgeo/game/opengl))" --quit
 sbcl --script tools/build.lisp --output artifacts/game/
 ./artifacts/game/sgeo-game
 ```

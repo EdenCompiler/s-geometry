@@ -117,7 +117,7 @@
                (is (vector-approximately= #(0.5d0 0.25d0 0d0 0.125d0 0.375d0)
                                           (sgeo.animation:sample-track weight-track 1d0)))
                (is (eq 'yason:false (gethash "doubleSided" definition)))
-               (is (eq 'yason:null (gethash "nullable" extras)))
+               (is (eq :null (gethash "nullable" extras)))
                (is (equalp #() (gethash "empty" extras)))
                (is (eq 'yason:true (gethash "enabled" extras)))
                (is (string= "Material ç" (sgeo.core:object-name material)))
@@ -141,7 +141,8 @@
                    (sgeo.gltf::%base64-encode (sgeo.gltf::%read-bytes (%gltf-fixture "animated.bin")))))
            (setf (gethash "node" (gethash "target"
                    (aref (gethash "channels" (aref (gethash "animations" document) 0)) 3))) 999)
-           (with-open-file (stream path :direction :output :if-exists :supersede) (yason:encode document stream))
+           (with-open-file (stream path :direction :output :if-exists :supersede)
+             (sgeo.gltf::%encode-json document stream))
            (signals error (sgeo.gltf:import-gltf path :world world))
            (is (null (sg:scene-object-children root)))
            (is (null (sg:world-animation-state world)))
@@ -164,9 +165,8 @@
                  (gethash "name" (aref (gethash "materials" document) 0)) "Second material"
                  (gethash "magFilter" (aref (gethash "samplers" document) 0)) 9728)
            (with-open-file (stream input :direction :output :if-exists :supersede)
-             ;; O YASON antigo representa NULL pelo símbolo, ao contrário do parser.
-             (setf (gethash "nullable" (gethash "extras" (aref (gethash "materials" document) 0))) 'yason:null)
-             (yason:encode document stream))
+             (setf (gethash "nullable" (gethash "extras" (aref (gethash "materials" document) 0))) :null)
+             (sgeo.gltf::%encode-json document stream))
            (sgeo.gltf:import-gltf input :world world)
            (sgeo.gltf:export-gltf world output :binary t)
            (let* ((result (sgeo.gltf::%load-document output))

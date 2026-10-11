@@ -31,14 +31,14 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes sbcl libglfw3 libglfw3-dev libopenal1 xvfb xauth mesa-utils libgl1-mesa-dri
+          sudo apt-get install --yes sbcl libglfw3 libglfw3-dev libopenal1 xvfb xauth mesa-utils libgl1-mesa-dri spirv-tools
           echo "SGEO_NATIVE_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> "$GITHUB_ENV"
 
       - name: Install macOS graphics and audio prerequisites
         if: matrix.target == 'macos'
         run: |
           brew update
-          brew install sbcl glfw openal-soft
+          brew install sbcl glfw openal-soft spirv-tools
           native_path="$(brew --prefix glfw)/lib:$(brew --prefix openal-soft)/lib"
           echo "SGEO_NATIVE_LIBRARY_PATH=$native_path" >> "$GITHUB_ENV"
           echo "DYLD_LIBRARY_PATH=$native_path${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" >> "$GITHUB_ENV"
@@ -65,22 +65,22 @@ jobs:
           "SGEO_NATIVE_LIBRARY_PATH=$nativeBin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Bootstrap Lisp dependencies and compile game systems
-        run: sbcl --script tools/ci-setup.lisp
+        run: sbcl --dynamic-space-size 4096 --script tools/ci-setup.lisp
 
       - name: Run headless Lisp test suite
-        run: sbcl --script tools/test.lisp
+        run: sbcl --dynamic-space-size 4096 --script tools/test.lisp
 
       - name: Build native release package
         shell: bash
         if: runner.os != 'Windows'
         run: |
-          sbcl --script tools/build.lisp --output "artifacts/releases/sgeo-game-0.1.0-${{ matrix.target }}/"
+          sbcl --dynamic-space-size 4096 --script tools/build.lisp --output "artifacts/releases/sgeo-game-0.1.0-${{ matrix.target }}/"
 
       - name: Build native release package
         shell: pwsh
         if: runner.os == 'Windows'
         run: |
-          sbcl --script tools/build.lisp --output "artifacts/releases/sgeo-game-0.1.0-windows/"
+          sbcl --dynamic-space-size 4096 --script tools/build.lisp --output "artifacts/releases/sgeo-game-0.1.0-windows/"
 
       - name: Validate relocated Linux package and OpenGL rendering
         if: matrix.target == 'linux'

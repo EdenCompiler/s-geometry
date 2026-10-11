@@ -37,11 +37,19 @@
 (test diagnostics-renderer-rethrows-uncaught-error
   (let ((profiler (sgeo.diagnostics:make-profiler))
         (renderer (make-instance 'diagnostics-fake-renderer :mode :signal)))
-    (sgeo.diagnostics:with-profile-scope ("render-test" :profiler profiler)
-      (signals simple-error (sgeo.render:render-frame renderer nil 64 64)))
+    (signals simple-error
+      (sgeo.runtime::%with-profiled-frame (profiler "runtime-test")
+        (sgeo.diagnostics:with-profile-scope ("render-test" :profiler profiler)
+          (sgeo.render:render-frame renderer nil 64 64))))
     (let ((errors (getf (sgeo.diagnostics:profiler-snapshot profiler) :errors)))
       (is (= 1 (length errors)))
-      (is (equal "uncaught fake backend failure" (getf (aref errors 0) :message))))))
+      (is (equal "uncaught fake backend failure" (getf (aref errors 0) :message)))
+      (is (find "frame-end" (getf (sgeo.diagnostics:profiler-snapshot profiler) :timeline)
+                :key (lambda (record) (getf record :kind)) :test #'equal)))
+    (is (equal '(first second)
+               (multiple-value-list
+                (sgeo.runtime::%with-profiled-frame (profiler "multiple-values")
+                  (values 'first 'second)))))))
 
 (test diagnostics-delayed-gpu-query-keeps-original-frame
   (let* ((profiler (sgeo.diagnostics:make-profiler))
@@ -124,6 +132,33 @@
       (is (>= (getf outer :inclusive-ns) (getf outer :exclusive-ns)))
       (is (>= (getf inner :inclusive-ns) 10000000)))))
 
+(test diagnostics-phase-inheritance-and-cross-collector-exclusive-accounting
+  (let ((outer-profiler (sgeo.diagnostics:make-profiler))
+        (inner-profiler (sgeo.diagnostics:make-profiler)))
+    (sgeo.diagnostics:with-profile-scope ("phase-parent" :profiler outer-profiler
+                                         :frame-phase :simulation)
+      (sleep 0.01)
+      (sgeo.diagnostics:with-profile-scope ("foreign-collector" :profiler inner-profiler)
+        (sleep 0.01)
+        (sgeo.diagnostics:with-profile-scope ("same-collector-child" :profiler outer-profiler)
+          (sleep 0.01)))
+      (sleep 0.01))
+    (let* ((aggregates (getf (sgeo.diagnostics:profiler-snapshot outer-profiler) :aggregates))
+           (parent (find "phase-parent" aggregates :key (lambda (item) (getf item :function))
+                         :test #'equal))
+           (child (find "same-collector-child" aggregates
+                        :key (lambda (item) (getf item :function)) :test #'equal)))
+      (is (equal "simulation" (getf parent :frame-phase)))
+      (is (equal "simulation" (getf child :frame-phase)))
+      (is (>= (- (getf parent :inclusive-ns) (getf parent :exclusive-ns)) 5000000)))))
+
+(test diagnostics-disabled-frame-apis-are-no-ops
+  (let ((profiler (sgeo.diagnostics:make-profiler :enabled nil)))
+    (is (null (sgeo.diagnostics:begin-frame profiler "disabled")))
+    (is (null (sgeo.diagnostics:end-frame profiler)))
+    (is (zerop (sgeo.diagnostics::profiler-frame profiler)))
+    (is (zerop (length (getf (sgeo.diagnostics:profiler-snapshot profiler) :timeline))))))
+
 (test diagnostics-allocation-capability-and-gpu-clock-origin
   (let ((profiler (sgeo.diagnostics:make-profiler)))
     (sgeo.diagnostics:with-profile-scope ("allocate" :profiler profiler)
@@ -205,3 +240,13 @@
                            :calls))))
       (sgeo.diagnostics:clear-profiler profiler)
       (is (zerop (length (getf (sgeo.diagnostics:profiler-snapshot profiler) :aggregates))))))))
+
+(test diagnostics-json-encodes-explicit-false-metadata
+  (let ((profiler (sgeo.diagnostics:make-profiler
+                   :renderer-info '(:closed-p nil :validation nil :optional-value nil))))
+    (let ((report (sgeo.diagnostics:profile-report profiler)))
+      (is (search (if (member :single-threaded *features*)
+                      "\"threaded\":false" "\"threaded\":true") report))
+      (is (search "\"closed-p\":false" report))
+      (is (search "\"validation\":false" report))
+      (is (search "\"optional-value\":null" report)))))

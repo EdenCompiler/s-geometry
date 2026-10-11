@@ -70,14 +70,19 @@
 
 (defmacro with-profile-scope ((name &key profiler subsystem function object-class frame-phase) &body body)
   "Mede um escopo quando existe coletor ativo; sem coletor executa o corpo diretamente."
-  (let ((collector (gensym "PROFILER")) (scope (gensym "SCOPE")))
+  (let ((collector (gensym "PROFILER")) (scope (gensym "SCOPE"))
+        (phase (gensym "PHASE")))
     `(let ((,collector (or ,profiler *profiler*)))
        (if (and ,collector (profiler-enabled-p ,collector))
-           (let ((,scope (%begin-scope ,collector ,name ,subsystem ,function
-                                        ,object-class ,frame-phase)))
-             (let ((*profiler* ,collector)
-                   (*scope-stack* (cons ,scope *scope-stack*)))
-               (unwind-protect (progn ,@body) (%finish-scope ,scope))))
+           (let* ((,phase (or ,frame-phase *frame-phase*
+                              (and *scope-stack* (%scope-frame-phase (car *scope-stack*)))
+                              (profiler-frame-phase ,collector)))
+                  (*frame-phase* ,phase)
+                  (,scope (%begin-scope ,collector ,name ,subsystem ,function
+                                        ,object-class ,phase))
+                  (*profiler* ,collector)
+                  (*scope-stack* (cons ,scope *scope-stack*)))
+             (unwind-protect (progn ,@body) (%finish-scope ,scope)))
            (progn ,@body)))))
 
 (defun %begin-scope (profiler name subsystem function object-class frame-phase)
@@ -116,12 +121,13 @@
                        :duration-ns (%ticks-to-ns elapsed (profiler-clock-rate profiler))
                        :exclusive-ns (%ticks-to-ns exclusive (profiler-clock-rate profiler))
                        :allocated-bytes allocated :exclusive-allocated-bytes exclusive-allocation)))
-    (when (and *scope-stack* (eq scope (car *scope-stack*)) (cdr *scope-stack*)
-               (eq profiler (%scope-profiler (cadr *scope-stack*))))
-      (incf (%scope-children-time (cadr *scope-stack*)) elapsed)
-      (when allocated
-        (setf (%scope-allocation-children (cadr *scope-stack*))
-              (+ (or (%scope-allocation-children (cadr *scope-stack*)) 0) allocated))))
+    (let ((parent (and *scope-stack* (eq scope (car *scope-stack*))
+                       (find profiler (cdr *scope-stack*) :key #'%scope-profiler :test #'eq))))
+      (when parent
+        (incf (%scope-children-time parent) elapsed)
+        (when allocated
+          (setf (%scope-allocation-children parent)
+                (+ (or (%scope-allocation-children parent) 0) allocated)))))
     (bt:with-lock-held ((profiler-lock profiler))
       (%aggregate-scope profiler record)
       (%push-timeline profiler record))))
@@ -166,45 +172,46 @@
 (defun begin-frame (profiler &optional (phase "frame"))
   "Abre um frame e devolve seu identificador para END-FRAME."
   (check-type profiler profiler)
-  (bt:with-lock-held ((profiler-lock profiler))
-    (let ((frame (incf (profiler-frame profiler))))
-      (setf (profiler-frame-start profiler) (get-internal-real-time)
-            (profiler-frame-allocation-start profiler) (%bytes-consed)
-            (profiler-frame-phase profiler) (%safe-label phase "frame"))
-      (when (profiler-enabled-p profiler)
+  (when (profiler-enabled-p profiler)
+    (bt:with-lock-held ((profiler-lock profiler))
+      (let ((frame (incf (profiler-frame profiler))))
+        (setf (profiler-frame-start profiler) (get-internal-real-time)
+              (profiler-frame-allocation-start profiler) (%bytes-consed)
+              (profiler-frame-phase profiler) (%safe-label phase "frame"))
         (%push-timeline profiler (list :kind "frame-start" :frame frame
                                       :phase (%safe-label phase "frame")
                                       :timestamp-ns (%ticks-to-ns (- (profiler-frame-start profiler)
                                                                      (profiler-origin-ticks profiler))
                                                                  (profiler-clock-rate profiler))
                                       :clock-origin "host-monotonic"
-                                      :thread (%thread-label))))
-      frame)))
+                                      :thread (%thread-label)))
+        frame))))
 
 (defun end-frame (profiler &optional frame (phase "frame"))
   "Fecha um frame aberto, publicando sua duração e métrica de alocação."
   (check-type profiler profiler)
-  (bt:with-lock-held ((profiler-lock profiler))
-    (let* ((frame (or frame (profiler-frame profiler)))
-           (start (profiler-frame-start profiler))
-           (allocation-start (profiler-frame-allocation-start profiler))
-           (allocation-end (%bytes-consed))
-           (allocated (and allocation-start allocation-end
-                           (max 0 (- allocation-end allocation-start))))
-           (duration (and start (%ticks-to-ns (max 0 (- (get-internal-real-time) start))
-                                              (profiler-clock-rate profiler))))
-           (record (list :kind "frame-end" :frame frame :phase (%safe-label phase "frame")
-                         :duration-ns duration
-                         :allocated-bytes allocated
-                         :allocation-scope (and allocated "process")
-                         :timestamp-ns (%ticks-to-ns (- (get-internal-real-time)
-                                                         (profiler-origin-ticks profiler))
-                                                     (profiler-clock-rate profiler))
-                         :clock-origin "host-monotonic" :thread (%thread-label))))
-      (when (profiler-enabled-p profiler) (%push-timeline profiler record))
-      (setf (profiler-frame-start profiler) nil)
-      (setf (profiler-frame-allocation-start profiler) nil)
-      record)))
+  (when (profiler-enabled-p profiler)
+    (bt:with-lock-held ((profiler-lock profiler))
+      (let* ((frame (or frame (profiler-frame profiler)))
+             (start (profiler-frame-start profiler))
+             (allocation-start (profiler-frame-allocation-start profiler))
+             (allocation-end (%bytes-consed))
+             (allocated (and allocation-start allocation-end
+                             (max 0 (- allocation-end allocation-start))))
+             (duration (and start (%ticks-to-ns (max 0 (- (get-internal-real-time) start))
+                                                (profiler-clock-rate profiler))))
+             (record (list :kind "frame-end" :frame frame :phase (%safe-label phase "frame")
+                           :duration-ns duration
+                           :allocated-bytes allocated
+                           :allocation-scope (and allocated "process")
+                           :timestamp-ns (%ticks-to-ns (- (get-internal-real-time)
+                                                           (profiler-origin-ticks profiler))
+                                                       (profiler-clock-rate profiler))
+                           :clock-origin "host-monotonic" :thread (%thread-label))))
+        (%push-timeline profiler record)
+        (setf (profiler-frame-start profiler) nil)
+        (setf (profiler-frame-allocation-start profiler) nil)
+        record))))
 
 (defun current-frame (&optional (profiler *profiler*))
   "Retorna o número do frame atual do coletor dinâmico."
@@ -379,7 +386,7 @@
         :features (mapcar #'string-downcase (sort (mapcar #'symbol-name *features*) #'string<))))
 
 (defun %feature-info ()
-  (list :threaded (not (member :single-threaded *features*))))
+  (list :threaded (if (member :single-threaded *features*) :false t)))
 
 (defun profile-report (profiler &key (format :json))
   "Devolve um relatório JSON ou texto humano a partir de um snapshot isolado."
@@ -466,17 +473,26 @@
           (gethash "displayTimeUnit" document) "ms")
     (%json-encode document)))
 
-(defun %safe-copy (value &optional (seen (make-hash-table :test #'eq)))
+(defun %safe-copy (value &optional (seen (make-hash-table :test #'eq)) key)
   "Copia dados simples, limita ciclos e descarta referências a objetos de runtime."
-  (cond ((or (null value) (eq value t) (stringp value) (characterp value) (integerp value)
+  (cond ((or (eq value t) (stringp value) (characterp value) (integerp value)
              (rationalp value) (keywordp value)) value)
+        ((null value) (if (%json-boolean-field-p key) :false nil))
         ((floatp value) (if (%finite-float-p value) value nil))
         ((symbolp value) (string-downcase (symbol-name value)))
+        ((and (consp value) (%safe-plist-shape-p value))
+         (if (gethash value seen) "[cycle]"
+             (progn
+               (setf (gethash value seen) t)
+               (loop for (property item) on value by #'cddr
+                     append (list (%safe-copy property seen)
+                                  (%safe-copy item seen property))))))
         ((consp value)
          (if (gethash value seen) "[cycle]"
              (progn (setf (gethash value seen) t)
                     (cons (%safe-copy (car value) seen)
-                          (if (listp (cdr value)) (%safe-copy (cdr value) seen) "[improper-list]")))))
+                          (if (listp (cdr value)) (%safe-copy (cdr value) seen)
+                              "[improper-list]")))))
         ((hash-table-p value)
          (if (gethash value seen) "[cycle]"
              (progn (setf (gethash value seen) t)
@@ -484,7 +500,7 @@
                       (maphash (lambda (key item)
                                  (let ((safe-key (%safe-copy key seen)))
                                    (setf (gethash (if (stringp safe-key) safe-key (%safe-label safe-key)) copy)
-                                         (%safe-copy item seen))))
+                                         (%safe-copy item seen key))))
                                value)
                       copy))))
         ((and (vectorp value) (not (stringp value)))
@@ -492,6 +508,24 @@
              (progn (setf (gethash value seen) t)
                     (map 'vector (lambda (item) (%safe-copy item seen)) value))))
         (t (%safe-label value (format nil "<~A>" (type-of value))))))
+
+(defun %json-boolean-field-p (key)
+  (let ((name (string-upcase (if (symbolp key) (symbol-name key)
+                                 (if (stringp key) key "")))))
+    (member name '("THREADED" "CLOSED-P" "VALIDATION" "ENABLED" "ENABLED-P"
+                   "VISIBLE" "VISIBLE-P" "EDITOR-LOADED") :test #'equal)))
+
+(defun %safe-plist-shape-p (value)
+  "Reconhece listas de propriedades finitas e próprias sem percorrer ciclos indefinidamente."
+  (let ((seen (make-hash-table :test #'eq)) (tail value))
+    (loop while (consp tail) do
+      (when (gethash tail seen) (return-from %safe-plist-shape-p nil))
+      (setf (gethash tail seen) t)
+      (unless (and (consp (cdr tail))
+                   (or (symbolp (car tail)) (stringp (car tail))))
+        (return-from %safe-plist-shape-p nil))
+      (setf tail (cddr tail)))
+    (and (null tail) (zerop (mod (length value) 2)))))
 
 (defun %finite-float-p (value)
   (and (= value value)

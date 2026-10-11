@@ -15,18 +15,6 @@
                    (sgeo.gltf::%read-bytes (%gltf-fixture "animated.bin")))))
     document))
 
-(defun %gltf-validation-json-value (value)
-  ;; O YASON antigo lê null como :NULL, mas só escreve null com yason:null.
-  (cond ((eq value :null) 'yason:null)
-        ((hash-table-p value)
-         (maphash (lambda (key item)
-                    (setf (gethash key value) (%gltf-validation-json-value item)))
-                  value)
-         value)
-        ((and (vectorp value) (not (stringp value)))
-         (map 'vector #'%gltf-validation-json-value value))
-        (t value)))
-
 (defun %gltf-validation-unique-path ()
   (merge-pathnames
    (format nil "sgeo-gltf-validation-~36r-~36r.gltf"
@@ -67,7 +55,7 @@
       (unwind-protect
            (progn
              (with-open-file (stream path :direction :output :if-exists :supersede)
-               (yason:encode (%gltf-validation-json-value document) stream))
+               (sgeo.gltf::%encode-json document stream))
              (signals error (sgeo.gltf:import-gltf path :world world))
              (%gltf-validation-assert-same-objects before-objects
                                                    (%gltf-validation-world-objects world))
