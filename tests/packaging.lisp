@@ -67,10 +67,10 @@
                         :diagnostics '("native build id: 42"))))
            (multiple-value-bind (app executable launcher desktop copied-library copied-asset manifest)
                (%host-package-layout target destination)
-             (is (equalp (getf result :application) app))
+             (is (equalp (truename (getf result :application)) (truename app)))
              (is (probe-file executable))
-             (is (or (null launcher) (probe-file launcher)))
-             (is (or (null desktop) (probe-file desktop)))
+             (when launcher (is (probe-file launcher)))
+             (when desktop (is (probe-file desktop)))
              (is (probe-file copied-library))
              (is (probe-file copied-asset))
              (is (probe-file manifest))
@@ -152,9 +152,9 @@
 
 (test package-application-rolls-back-when-generated-package-verification-fails
   (let* ((root (%package-test-root))
-         (source (%make-package-fixture root #P"runner" "exe"))
+         (source (%make-package-fixture root #P"inputs/runner" "exe"))
          (target (sgeo.deployment::%host-target))
-         (destination (merge-pathnames #P"failed/" root))
+         (destination (merge-pathnames #P"new/outer/failed/" root))
          (app (ecase target
                 ((:linux :windows) destination)
                 (:macos (merge-pathnames #P"Runner.app/" destination))))
@@ -166,7 +166,7 @@
          (original-verifier (symbol-function 'sgeo.deployment:verify-package)))
     (unwind-protect
          (progn
-           ;; Force the validation branch to fail after files and manifest are written.
+           ;; Força a verificação a falhar depois da gravação do pacote.
            (setf (symbol-function 'sgeo.deployment:verify-package)
                  (lambda (directory)
                    (declare (ignore directory))
@@ -175,7 +175,13 @@
              (sgeo.deployment:package-application
               source destination :name "Runner" :target target))
            (is (not (probe-file app)))
-           (is (not (probe-file archive))))
+           (is (not (probe-file archive)))
+           (is (not (probe-file destination)))
+           (is (not (probe-file (merge-pathnames #P"new/" root))))
+           (setf (symbol-function 'sgeo.deployment:verify-package) original-verifier)
+           (let ((result (sgeo.deployment:package-application
+                          source destination :name "Runner" :target target)))
+             (is (sgeo.deployment:verify-package (getf result :application)))))
       (setf (symbol-function 'sgeo.deployment:verify-package) original-verifier)
       (when (probe-file root)
         (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))))

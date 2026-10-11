@@ -61,11 +61,19 @@ jobs:
           }
           if (-not $sbcl) { throw 'SBCL executable was not found after installation' }
           Split-Path $sbcl | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & "$vcpkg\vcpkg.exe" install glfw3:x64-windows openal-soft:x64-windows
+          & "$vcpkg\vcpkg.exe" install glfw3:x64-windows openal-soft:x64-windows 'spirv-tools[tools]:x64-windows'
           if ($LASTEXITCODE -ne 0) { throw 'vcpkg dependency installation failed' }
           $nativeBin = "$vcpkg\installed\x64-windows\bin"
           $nativeBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "SGEO_NATIVE_LIBRARY_PATH=$nativeBin" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # O port do vcpkg baixa o código oficial do Khronos e valida o SHA-512 registrado no próprio port.
+          $spirvToolsBin = "$vcpkg\installed\x64-windows\tools\spirv-tools"
+          $spirvValidator = Join-Path $spirvToolsBin 'spirv-val.exe'
+          if (-not (Test-Path $spirvValidator)) { throw "SPIR-V validator missing: $spirvValidator" }
+          $spirvVersion = & $spirvValidator --version
+          if ($LASTEXITCODE -ne 0) { throw 'SPIR-V validator did not start' }
+          Write-Output "SPIRV-Tools validator: $spirvVersion"
+          $spirvToolsBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Bootstrap Lisp dependencies and compile game systems
         run: sbcl --dynamic-space-size 4096 --script tools/ci-setup.lisp

@@ -66,7 +66,7 @@
          (records (sgeo.deployment::%release-library-records
                    (list (list 'custom-fixture custom)
                          (list 'host-library host)
-                         ;; Loader-only sonames are not filesystem paths.
+                         ;; Sonames usados apenas pelo carregador não são caminhos de arquivos.
                          (list 'bare-host-library "libnot-installed-on-build-host.so"))
                    native))
          (custom-record (find 'custom-fixture records

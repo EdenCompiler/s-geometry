@@ -66,6 +66,44 @@
   (workspace-check (= (getf (sgeo.editor:editor-profile editor) :uploads) 0)
                    "contadores do renderizador sem contexto gráfico")
 
+  ;; Linhas cortadas na largura de 280 px ainda mostram primeiro duração e bytes.
+  (let* ((glyphs (make-array 256 :initial-element nil))
+         (aggregate '(:function "game/render/collect-many-meshes"
+                      :subsystem "game" :inclusive-ns 123456789
+                      :allocated-bytes 12582912))
+         (scope-row (sgeo.editor.opengl::%profile-scope-display-row aggregate))
+         (allocator-row (sgeo.editor.opengl::%profile-allocator-display-row aggregate))
+         (frame-row (sgeo.editor.opengl::%profile-frame-allocation-display-row
+                     (getf aggregate :allocated-bytes)))
+         (capabilities '(:cpu "available" :allocation "available" :gpu "available"))
+         (capability-row (sgeo.editor.opengl::%profile-capability-display-row capabilities))
+         (gpu-row (sgeo.editor.opengl::%profile-gpu-display-row
+                   #((:kind "gpu-sample" :name "scene" :duration-ns 1250000)
+                     (:kind "gpu-sample" :name "post" :duration-ns 2750000))))
+         (gpu-unavailable (sgeo.editor.opengl::%profile-gpu-display-row #())))
+    (setf (aref glyphs (char-code #\M))
+          (sgeo.backend.opengl::make-ui-glyph :advance 10d0))
+    (let ((renderer (sgeo.backend.opengl::%make-ui-renderer :glyphs glyphs)))
+      (workspace-check
+       (search "123.457ms · 12.0MB"
+               (sgeo.editor.opengl::%clip-text renderer scope-row 280))
+       "duração e bytes visíveis numa linha de perfil estreita")
+      (workspace-check
+       (search "12.0MB · game/"
+               (sgeo.editor.opengl::%clip-text renderer allocator-row 280))
+       "bytes visíveis antes do nome do maior alocador")
+      (workspace-check (equal "12.0MB · quadro" frame-row)
+                       "alocação compacta do último quadro")
+      (workspace-check (search "CPU ok · alloc ok · GPU ok"
+                               (sgeo.editor.opengl::%clip-text renderer capability-row 280))
+                       "capacidade GPU visível na linha estreita")
+      (workspace-check (search "2.750ms · post"
+                               (sgeo.editor.opengl::%clip-text renderer gpu-row 280))
+                       "última duração GPU visível na linha estreita")
+      (workspace-check (search "GPU N/D"
+                               (sgeo.editor.opengl::%clip-text renderer gpu-unavailable 280))
+                       "indisponibilidade de amostra GPU explícita")))
+
   (sgeo.editor.opengl::%dispatch-workspace-action state '(:workspace-reset))
   (workspace-check (and (null (sgeo.editor.opengl::editor-ui-workspace-tool state))
                         (null (sgeo.editor.opengl::editor-ui-left-width state))

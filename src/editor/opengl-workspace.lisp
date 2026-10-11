@@ -107,6 +107,51 @@
                    #'> :key (lambda (entry) (getf entry :allocated-bytes))))))
     (values top top-allocator)))
 
+(defun %profile-byte-label (bytes)
+  "Mostra bytes em uma unidade compacta adequada ao painel estreito."
+  (cond ((not (numberp bytes)) "N/D")
+        ((>= bytes (* 1024 1024 1024))
+         (format nil "~,1FGB" (/ bytes (* 1024d0 1024 1024))))
+        ((>= bytes (* 1024 1024))
+         (format nil "~,1FMB" (/ bytes (* 1024d0 1024))))
+        ((>= bytes 1024) (format nil "~,1FKB" (/ bytes 1024d0)))
+        (t (format nil "~DB" bytes))))
+
+(defun %profile-scope-display-row (entry)
+  "Põe duração e alocação antes do rótulo, para mantê-las visíveis ao cortar."
+  (format nil "~Ams · ~A · ~A"
+          (%workspace-number (/ (getf entry :inclusive-ns) 1000000d0))
+          (%profile-byte-label (getf entry :allocated-bytes))
+          (getf entry :function)))
+
+(defun %profile-allocator-display-row (entry)
+  "Põe a contagem compacta de bytes antes do nome do maior alocador."
+  (format nil "Top ~A · ~A/~A"
+          (%profile-byte-label (getf entry :allocated-bytes))
+          (or (getf entry :subsystem) "engine")
+          (getf entry :function)))
+
+(defun %profile-frame-allocation-display-row (bytes)
+  "Põe a alocação de quadro em primeiro lugar na linha."
+  (format nil "~A · quadro" (%profile-byte-label bytes)))
+
+(defun %profile-capability-display-row (capabilities)
+  "Resume a disponibilidade das métricas em uma linha curta."
+  (format nil "CPU ~A · alloc ~A · GPU ~A"
+          (if (equal (getf capabilities :cpu) "available") "ok" "N/D")
+          (if (equal (getf capabilities :allocation) "available") "ok" "N/D")
+          (if (equal (getf capabilities :gpu) "available") "ok" "N/D")))
+
+(defun %profile-gpu-display-row (timeline)
+  "Mostra a última duração GPU registrada, sem inferir medidas ausentes."
+  (let ((sample (find "gpu-sample" timeline :key (lambda (entry) (getf entry :kind))
+                      :test #'equal :from-end t)))
+    (if (and sample (numberp (getf sample :duration-ns)))
+        (format nil "GPU ~Ams · ~A"
+                (%workspace-number (/ (getf sample :duration-ns) 1000000d0))
+                (or (getf sample :name) "amostra"))
+        "GPU N/D · sem amostra")))
+
 (defun %draw-workspace-profile (state rect)
   (let* ((editor (editor-ui-editor state))
          (profile (sgeo.editor:editor-profile editor))
@@ -149,30 +194,23 @@
                                :test #'equal :from-end t)))
         (multiple-value-setq (top top-allocator)
           (%profile-aggregate-display-data aggregates))
-        (%workspace-text state rect 4
-                         (format nil "Métricas CPU: ativo · alocação: ~A · GPU: ~A"
-                                 (getf capabilities :allocation) (getf capabilities :gpu))
+        (%workspace-text state rect 4 (%profile-capability-display-row capabilities)
                          (%color :muted))
-        (loop for entry in top for row from 5
-              for phase = (or (getf entry :frame-phase) (getf entry :subsystem) "engine") do
-                (%workspace-text state rect row
-                  (format nil "~A/~A · ~A ms~@[ · ~D B~]"
-                          phase (getf entry :function)
-                          (%workspace-number (/ (getf entry :inclusive-ns) 1000000d0))
-                          (getf entry :allocated-bytes))))
+        (%workspace-text state rect 5 (%profile-gpu-display-row timeline)
+                         (%color :muted))
+        (loop for entry in top for row from 6
+              do (%workspace-text state rect row (%profile-scope-display-row entry)))
         (when top-allocator
-          (%workspace-text state rect 8
-            (format nil "Maior alocador: ~A/~A · ~D B"
-                    (or (getf top-allocator :subsystem) "engine")
-                    (getf top-allocator :function) (getf top-allocator :allocated-bytes))))
-        (when (numberp (getf last-frame :allocated-bytes))
           (%workspace-text state rect 9
-            (format nil "Alocação do último quadro: ~D KB"
-                    (floor (getf last-frame :allocated-bytes) 1024))))))
+            (%profile-allocator-display-row top-allocator)))
+        (when (numberp (getf last-frame :allocated-bytes))
+          (%workspace-text state rect 10
+            (%profile-frame-allocation-display-row
+             (getf last-frame :allocated-bytes))))))
     (let* ((chart-x (+ (first rect) 10))
-           (chart-y (+ (second rect) (if diagnostics 230 130)))
+           (chart-y (+ (second rect) (if diagnostics 258 130)))
            (chart-width (max 1 (- (third rect) 20)))
-           (chart-height (max 32 (min 160 (- (fourth rect) (if diagnostics 280 174)))))
+           (chart-height (max 32 (min 160 (- (fourth rect) (if diagnostics 308 174)))))
            (samples (subseq samples 0 (min 120 (length samples))))
            (maximum (max 1d-9 (reduce #'max samples :initial-value 0d0)))
            (count (length samples))
