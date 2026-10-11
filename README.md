@@ -1,10 +1,10 @@
 # S-Geometry/CL
 
-S-Geometry/CL is a Common Lisp 3D editor inspired by [S-Geometry on the Symbolics Lisp machines](docs/original-s-geometry-summary.md).
+S-Geometry/CL is a polygon modeling editor written in Common Lisp, inspired by [S-Geometry on the Symbolics Lisp machines](docs/original-s-geometry-summary.md).
 
-Scenes and polygon meshes live in the Lisp image. The editor and its listener work on the same objects: you can select a face in the viewport, inspect the mesh in Lisp, redefine an operation, and keep editing the scene. Graphics resources are rebuilt from that state as needed.
+You can work through the menus or through Lisp. Both use the same scene and meshes, so you can inspect an object, redefine an operation, and try it on the model you're already editing. The scene stays in the running Lisp image; graphics resources are rebuilt when it changes.
 
-Linux with SBCL is the current target. The geometry kernel supports orientable manifold solids and open surfaces. Development progress is tracked in [docs/roadmap.md](docs/roadmap.md).
+The editor currently targets Linux with SBCL. The geometry kernel handles orientable manifold solids and open surfaces.
 
 ## Run the editor
 
@@ -17,13 +17,13 @@ sbcl --load tools/bootstrap.lisp --eval '(ql:quickload :sgeo/editor/opengl)' --q
 sbcl --script tools/run.lisp
 ```
 
-The Quicklisp step installs the editor's Lisp dependencies and only needs to be repeated when they change. The launcher loads `~/quicklisp/setup.lisp` if it exists. For a different Quicklisp location, load it explicitly before the other arguments:
+The first SBCL command installs the Lisp dependencies. The launcher looks for Quicklisp at `~/quicklisp/setup.lisp`; if yours is elsewhere, load it explicitly:
 
 ```bash
 sbcl --load /path/to/quicklisp/setup.lisp --script tools/run.lisp
 ```
 
-`tools/run.lisp` opens the editor with a box to work on. `tools/editor.lisp` is an alias for the same launcher.
+The editor opens with a box ready to edit. `tools/editor.lisp` runs the same launcher.
 
 ## Editing
 
@@ -58,7 +58,7 @@ The listener below the viewport exposes the current scene as `sg:*world*` and th
 (sg:extrude-face *mesh* (first (sg:mesh-faces *mesh*)) :distance 0.25d0)
 ```
 
-The menus use these same public operations. An edit that produces invalid geometry leaves the previous mesh intact.
+These are the same operations the menus call. If an edit produces invalid geometry, the previous mesh is kept.
 
 You can also start from an existing Lisp session:
 
@@ -83,11 +83,21 @@ The animation example opens an animated character in the editor. Tracks and keyf
 
 In the game, use WASD or the arrow keys to move, Space to jump, and E at the door after collecting two coins. P pauses and R restarts. `--audio` enables sound through OpenAL. The [simulation guide](docs/simulation.md) covers the game and both Boids implementations.
 
-The Vulkan PBR viewer has its own launcher and dependencies, described in the [renderer notes](docs/m4-implementation.md):
+For the Vulkan PBR viewer, follow the setup in the [renderer notes](docs/m4-implementation.md), then run:
 
 ```bash
 sbcl --dynamic-space-size 4096 --script tools/pbr-viewer.lisp
 ```
+
+To build the game as a standalone application on Linux:
+
+```bash
+sbcl --load tools/bootstrap.lisp --eval '(ql:quickload :sgeo/game/opengl)' --quit
+sbcl --script tools/build.lisp --output artifacts/game/
+./artifacts/game/sgeo-game
+```
+
+The build includes the game assets and runs without the editor or Quicklisp. See the [deployment guide](docs/deployment.md) for packaging and profiling options.
 
 ## Development
 
@@ -100,4 +110,4 @@ sbcl --script tools/test.lisp
 
 The early scene demos are in `tools/demo.lisp`, with `--triangle` and `--kernel` options. Graphics checks are documented in the [editor notes](docs/m3-implementation.md).
 
-For the implementation details, see the [architecture document](docs/modern-s-geometry-design.md) and [geometry-kernel specification](docs/sgeo-geometry-kernel-spec.md).
+The [roadmap](docs/roadmap.md) tracks completed work and what's still planned. The [architecture document](docs/modern-s-geometry-design.md) and [geometry-kernel specification](docs/sgeo-geometry-kernel-spec.md) describe the implementation.
