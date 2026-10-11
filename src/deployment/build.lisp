@@ -74,7 +74,7 @@
 (defun %resolve-native-library (path)
   "Localiza uma biblioteca já carregada sem pressupor caminhos da máquina de build."
   (or (probe-file path)
-      (loop for directory in cffi:*foreign-library-directories*
+      (loop for directory in (cffi::parse-directories cffi:*foreign-library-directories*)
             for candidate = (merge-pathnames (file-namestring path) directory)
             when (probe-file candidate) return (probe-file candidate))
       (loop for directory in (uiop:split-string (or (uiop:getenv "PATH") "")

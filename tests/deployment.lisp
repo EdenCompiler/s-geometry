@@ -92,6 +92,18 @@
       (when (probe-file root)
         (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))))
 
+(test deployment-resolves-cffi-expression-search-paths
+  (let* ((root (%deployment-test-root))
+         (library (%deployment-write-file root #P"search/libexpression-fixture.so" "fixture")))
+    (unwind-protect
+         (let ((cffi:*foreign-library-directories*
+                 (list `(list ,(uiop:pathname-directory-pathname library)))))
+           (is (equalp (truename library)
+                       (truename (sgeo.deployment::%resolve-native-library
+                                  "libexpression-fixture.so")))))
+      (when (probe-file root)
+        (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore)))))
+
 (test deployment-registers-lazy-openal-from-renamed-native-mapping
   (let* ((root (%deployment-test-root))
          (source (%deployment-write-file root #P"source/libopenal-fixture.so" "fixture")))
