@@ -409,8 +409,8 @@
                       (with-output-to-string (out)
                         (loop for character across (namestring archive) do
                           (write-char character out)
-                          (when (char= character #\') (write-char character out)))))
-        :ignore-error-status nil :output :string :error-output :string))))
+                          (when (char= character #\') (write-char character out))))))
+        :ignore-error-status nil :output :string :error-output :string)))
     archive))
 
 (defun package-application (executable destination &key name (version "0.1.0") target
