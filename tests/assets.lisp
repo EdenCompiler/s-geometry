@@ -1,4 +1,5 @@
 (in-package #:sgeo.tests)
+(in-suite sgeo-suite)
 
 (defun %asset-test-path (name)
   (merge-pathnames (format nil "sgeo-assets-~A-~D-~D" name (get-universal-time) (random 1000000))
@@ -229,3 +230,35 @@
       (when watcher (sgeo.assets:stop-asset-watcher watcher))
       (sgeo.assets:unregister-importer "asset-test-watcher")
       (%asset-cleanup source path))))
+
+(test asset-scene-preserves-procedural-local-id-parameters
+  (let* ((graph (sg:make-dependency-graph))
+         (literal '(:id 99999999 :object-id 88888888 :value (:parent-id 77777777)))
+         (source (%asset-test-path "procedural.sgeo"))
+         (pack-a (%asset-test-path "procedural-a.sgp"))
+         (pack-b (%asset-test-path "procedural-b.sgp")))
+    (sg:define-generator 'asset-procedural-fixture nil
+                        (lambda (parameters dependencies)
+                          (declare (ignore parameters dependencies))
+                          (sg:make-half-edge-box)))
+    (sg:add-parameter-node graph :literal literal)
+    (sg:add-generator-node graph :mesh 'asset-procedural-fixture '(:literal))
+    (unwind-protect
+         (let* ((object (sg:make-procedural-object graph :mesh))
+                (world (sg:make-world :root object))
+                (manifest (list (list :name "procedural" :source source :importer "scene"))))
+           (sgeo.serialization:save-world world source)
+           (sgeo.assets:compile-assets manifest pack-a)
+           (sgeo.assets:compile-assets manifest pack-b)
+           (is (equalp (%asset-read-bytes pack-a) (%asset-read-bytes pack-b)))
+           (let* ((bytes (sgeo.assets:packed-asset-bytes
+                          (sgeo.assets:find-packed-asset (sgeo.assets:load-asset-pack pack-a) "procedural")))
+                  (*read-eval* nil)
+                  (reopened (sgeo.serialization:world-from-data
+                             (read-from-string (sgeo.assets::%decode-utf8 bytes))))
+                  (restored (sg:world-root reopened)))
+             (is (typep restored 'sg:procedural-object))
+             (is (equal literal (sg:node-value (sg:procedural-graph restored) :literal)))
+             (sg:update-world reopened 0d0)
+             (is (= 6 (length (sg:mesh-faces (sg:mesh-object-geometry restored)))))))
+      (%asset-cleanup source pack-a pack-b))))

@@ -14,6 +14,7 @@
   (drag-current-x 0d0) (drag-current-y 0d0)
   (inspector-scroll 0) (history-scroll 0) (output-scroll 0)
   (workspace-tool nil) (left-width nil) (right-width nil) (bottom-height nil)
+  (procedural-node-selection nil) (procedural-node-scroll 0)
   (show-hierarchy-p t) (show-inspector-p t) (show-history-p t) (show-listener-p t)
   profiler
   (profile-samples nil) (profile-last-bytes 0)
@@ -236,6 +237,7 @@
                                           (list "Debug world" (list :workspace-tool :debug))
                                           (list "Profile" (list :workspace-tool :profile))
                                           (list "Timeline" (list :workspace-tool :timeline))
+                                          (list "Nós procedurais" (list :workspace-tool :nodes))
                                           (list "Configure panels" (list :workspace-tool :layout))
                                           (list "Scene hierarchy" (list :workspace-tool nil)))))))
       (dolist (entry menus)
@@ -863,6 +865,12 @@
         (:rename (%command state :rename :name value))
         (:import-gltf (%command state :import-gltf :path value))
         (:export-gltf (%command state :export-gltf :path value :binary t))
+        (:procedural-parameter
+         (sgeo.editor:edit-procedural-parameter
+          (editor-ui-editor state) (second target) value))
+        (:procedural-generator-parameter
+         (sgeo.editor:edit-procedural-generator-parameter
+          (editor-ui-editor state) (second target) (third target) value))
         (otherwise (sgeo.editor:set-inspector-number (editor-ui-editor state) (car target) value
                                                     :axis (cdr target)))))
     (setf (editor-ui-field-edit state) nil (editor-ui-focus state) :viewport)))
@@ -949,8 +957,12 @@
   (declare (ignore x))
   (let* ((mx (editor-ui-mouse-x state)) (my (editor-ui-mouse-y state))
          (layout (editor-ui-layout-rects state))
-         (right (getf layout :right)) (bottom (getf layout :bottom)))
+         (right (getf layout :right)) (left (getf layout :left)) (bottom (getf layout :bottom)))
     (cond
+      ((and left (eq (editor-ui-workspace-tool state) :nodes)
+            (%rect-contains-p mx my left))
+       (setf (editor-ui-procedural-node-scroll state)
+             (max 0 (+ (editor-ui-procedural-node-scroll state) (if (plusp y) -1 1)))))
       ((and right (%rect-contains-p mx my right))
        (setf (editor-ui-inspector-scroll state)
              (max 0 (+ (editor-ui-inspector-scroll state) (if (plusp y) -2 2)))))
@@ -984,7 +996,8 @@
                 :gc-time #+sbcl (/ sb-ext:*gc-run-time* internal-time-units-per-second) #-sbcl nil))))
 
 (defun run-editor (world-or-editor &key (width 1280) (height 800) (visible t)
-                                max-frames capture-path frame-hook repl scene-path profiler)
+                                max-frames capture-path frame-hook repl scene-path profiler
+                                (context-version '(3 3)))
   "Abre a interface nativa sobre um mundo existente ou cria um editor novo."
   (let* ((editor (if (typep world-or-editor 'sgeo.editor:editor-state)
                      world-or-editor
@@ -993,6 +1006,7 @@
          (state (%make-editor-ui :editor editor :capture-path capture-path
                                  :profiler (or profiler (sgeo.diagnostics:make-profiler :enabled nil))))
          (*active-ui-state* state)
+         (sgeo.backend.opengl:*opengl-context-version* context-version)
          (world (sgeo.editor:editor-world editor))
          (window nil) (renderer nil) (ui-renderer nil)
          (terminal-thread nil) (terminal-stop-flag (list nil))

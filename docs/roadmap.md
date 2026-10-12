@@ -8,7 +8,7 @@ The first target is **Linux with SBCL**, using **cl-glfw3, cl-opengl and CFFI** 
 
 The architecture is described in [Modern S-Geometry in Pure Common Lisp](modern-s-geometry-design.md). This roadmap preserves its M0–M8 milestone numbering and divides M3 into an initial editor and later expansion.
 
-**Implementation status:** M0, M1, M2, M3a, M3b, M4, M5 and M6 are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). See [M4 verification evidence](m4-implementation.md) for the shader compiler and Vulkan viewer, and [M5 verification evidence](m5-implementation.md) for animation and glTF. See [M6 verification evidence](m6-implementation.md) for simulation and the game examples. M7 is **In progress**; M8 is **Not started**.
+**Implementation status:** M0 through M8, including M3a and M3b, are **Complete**. Completion is tracked against the deliverables, tests, and demonstrations below. See [M0/M1 verification evidence](m0-m1-implementation.md), [M2 verification evidence](m2-implementation.md), and [M3 verification evidence](m3-implementation.md). See [M4 verification evidence](m4-implementation.md) for the shader compiler and Vulkan viewer, [M5 verification evidence](m5-implementation.md) for animation and glTF, [M6 verification evidence](m6-implementation.md) for simulation, [M7 verification evidence](m7-implementation.md) for deployment, and [M8 verification evidence](m8-implementation.md) for advanced geometry.
 
 Architectural commitments:
 
@@ -107,7 +107,7 @@ The first kernel supports **orientable manifold solids and open surfaces**, with
 
 ## Later milestones
 
-These milestones are **outside the first usable release**. M3b extends the editor, M4 adds the modern renderer, and M5 adds animation and glTF interchange; all three are complete. M6 adds simulation and game services and is complete. M7 is in progress; M8 remains a future goal. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
+These milestones are **outside the first usable release**. M3b through M8 are complete. Dates and duration estimates remain unset; the architecture document's numbering is preserved.
 
 ### M3b — Editor expansion
 
@@ -185,17 +185,19 @@ These milestones are **outside the first usable release**. M3b extends the edito
 
 ### M8 — Advanced geometry
 
-**Status:** Not started. **Release:** Later.
+**Status:** Complete. **Release:** Later.
 
-- [ ] Implement subdivision and robust mesh booleans.
-- [ ] Add signed distance fields and implicit geometry tools.
-- [ ] Expand curve and surface modeling.
-- [ ] Add procedural node views backed by Lisp forms or dependency objects.
-- [ ] Add GPU geometry processing.
-- [ ] Expand modeling operations beyond the initial M2 contract as their specifications are established.
-- [ ] Pass geometry and GPU processing tests and demonstrate live advanced modeling.
+- [x] Implement subdivision and robust mesh booleans.
+- [x] Add signed distance fields and implicit geometry tools.
+- [x] Expand curve and surface modeling.
+- [x] Add procedural node views backed by Lisp forms or dependency objects.
+- [x] Add GPU geometry processing.
+- [x] Expand modeling operations beyond the initial M2 contract as their specifications are established.
+- [x] Pass geometry and GPU processing tests and demonstrate live advanced modeling.
 
 **Exit criterion:** Advanced geometry can be authored and modified live while preserving the authoritative Lisp object model.
+
+**Verification:** 2,841 headless checks pass with no skips or failures. The native editor demonstration passes 74 checks over 15 frames with 29 geometry uploads: subdivision, CSG, field meshing, surface tessellation and sweeps regenerate into the same live meshes; Nodes controls edit and rewire a graph; redefinition, failed-generator recovery, GPU edits, cache invalidation, undo/redo, and fresh-session reopening pass. Compute readback and cleanup checks pass for triangle and half-edge boxes and a 120-vertex open grid. CSG publishes doubles from exact rational constructions; SDF meshing uses a finite grid; GPU processing uses float32 OpenGL 4.3 compute. See [M8 implementation and verification](m8-implementation.md) and the [geometry guide](advanced-geometry.md) for the supported operations and limits.
 
 ## Completion and tracking
 

@@ -41,7 +41,7 @@
   (lock (bt:make-lock "sgeo owner request"))
   (ready (bt:make-condition-variable)))
 (defstruct (editor-command (:conc-name command-)) name arguments label form before after)
-(defstruct editor-snapshot root camera selection records meshes materials animations)
+(defstruct editor-snapshot root camera selection records meshes materials animations procedural)
 
 (defun make-editor (&key world (scene-path "scene.sgeo"))
   "Cria o estado do editor sem carregar bibliotecas gráficas."
@@ -101,6 +101,13 @@
   (dolist (name '(sgeo.geometry:set-mesh-data sgeo.geometry:set-mesh-position
                   sgeo.geometry:set-vertex-position sgeo.geometry:split-edge
                   sgeo.geometry:collapse-edge sgeo.geometry:extrude-face sgeo.geometry:extrude-face-region
+                  sgeo.geometry:set-vertex-positions sgeo.geometry:replace-half-edge-mesh
+                  sgeo.geometry:split-face sgeo.geometry:triangulate-mesh
+                  sgeo.geometry:flip-winding sgeo.geometry:inset-face
+                  sgeo.geometry:weld-vertices sgeo.geometry:bridge-boundary-loops
+                  sgeo.geometry:duplicate-face-region sgeo.geometry:create-vertex
+                  sgeo.geometry:delete-vertex sgeo.geometry:create-face
+                  sgeo.geometry:delete-face sgeo.geometry:bevel-vertices
                   sgeo.scene:set-position sgeo.scene:translate sgeo.scene:set-rotation
                   sgeo.scene:rotate sgeo.scene:set-scale sgeo.scene:scale-object
                   sgeo.scene:add-child sgeo.scene:remove-child sgeo.scene:reparent

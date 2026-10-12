@@ -29,7 +29,8 @@
                   (loop for (key value) on list by #'cddr
                         append (list key
                                      (cond
-                                       ((eq key :metadata) value)
+                                       ;; Estes dados têm IDs locais ou parâmetros literais próprios.
+                                       ((member key '(:metadata :procedural) :test #'eq) value)
                                        ((member key '(:id :root-id :camera-id :selection-id :parent-id
                                                       :geometry-id :material-id :target-id :object-id
                                                       :root-target-id :root-joint-id)
@@ -134,6 +135,6 @@
     (let ((asset (sgeo.gltf:import-gltf source)))
       (%canonical-scene-bytes (sgeo.gltf:gltf-world asset) :remove-gltf-source-metadata t))))
 
-(register-importer "scene" #'%scene-importer :version "1")
-(register-importer "gltf" #'%gltf-importer :version "1")
+(register-importer "scene" #'%scene-importer :version "2")
+(register-importer "gltf" #'%gltf-importer :version "2")
 (register-importer "render-mesh" #'%render-mesh-importer :version "1")

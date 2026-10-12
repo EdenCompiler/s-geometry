@@ -25,4 +25,8 @@
    #:face-normal #:face-area #:vertex-normal #:mesh-surface-area
    #:triangulate-face #:closest-point-on-mesh #:mesh-ray-intersection
    #:set-vertex-position #:split-edge #:collapse-edge #:extrude-face #:extrude-face-region
-   #:make-half-edge-box #:make-sphere #:make-cylinder #:make-grid #:make-torus))
+   #:make-half-edge-box #:make-sphere #:make-cylinder #:make-grid #:make-torus
+   #:mesh-polygon-data #:replace-half-edge-mesh #:set-vertex-positions
+   #:split-face #:triangulate-mesh #:flip-winding #:extract-connected-components #:mesh-volume
+   #:inset-face #:weld-vertices #:bridge-boundary-loops #:duplicate-face-region
+   #:create-vertex #:delete-vertex #:create-face #:delete-face #:bevel-vertices))

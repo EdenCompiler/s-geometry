@@ -302,6 +302,115 @@
             (sgeo.backend.opengl:ui-text renderer x (+ controls-y 29)
                (format nil "~,3F / ~,3F s" time duration) (%color :muted)))))))
 
+(defun %draw-workspace-nodes (state rect)
+  "Desenha nós procedurais selecionáveis e editáveis, com conexões do grafo ativo."
+  (let* ((editor (editor-ui-editor state))
+         (world (sgeo.editor:editor-world editor))
+         (selected (sgeo.scene:world-selection world))
+         (inspected (sgeo.editor:editor-inspected editor))
+         (object (or (and (typep selected 'sgeo.procedural:procedural-object) selected)
+                     (and (typep inspected 'sgeo.procedural:procedural-object) inspected)))
+         (renderer (editor-ui-ui-renderer state)))
+    (%workspace-heading state rect "Nós procedurais")
+    (unless object
+      (%workspace-text state rect 0 "Selecione uma malha procedural para editar o grafo." (%color :muted))
+      (return-from %draw-workspace-nodes nil))
+    (let* ((view (sgeo.editor:editor-procedural-node-view editor object))
+           (nodes (getf view :nodes))
+           (edges (getf view :edges))
+           (scroll (min (editor-ui-procedural-node-scroll state) (max 0 (1- (length nodes)))))
+           (x (+ (first rect) 8)) (width (max 80 (- (third rect) 16)))
+           (top (+ (second rect) 36))
+           (heights (mapcar (lambda (node)
+                              (max 112 (+ 58 (* 23 (if (eq (getf node :kind) :generator)
+                                                         (/ (length (getf node :parameters)) 2) 0))
+                                             (* 23 (max 1 (length (getf node :inputs)))))))
+                            nodes))
+           (offsets (loop with offset = 0 for height in heights
+                          collect (prog1 offset (incf offset (+ height 10)))))
+           (base-offset (or (nth scroll offsets) 0)))
+      (setf (editor-ui-procedural-node-scroll state) scroll)
+      (%workspace-text state rect 0
+        (format nil "~A · saída ~A · grafo r~D"
+                (sgeo.core:object-name object) (getf view :output) (getf view :graph-revision))
+        (%color :muted))
+      (%ui-button state (+ x width -66) (+ (second rect) 4) 58 25 "Avaliar"
+                  (list :procedural-evaluate object (getf view :output))
+                  :compact-p t :text-scale 0.8d0)
+      ;; Desenha as conexões atrás dos cartões, ligando cada origem à linha consumidora.
+      (dolist (edge edges)
+        (let* ((source-index (position (car edge) nodes :key (lambda (entry) (getf entry :name))
+                                       :test #'equal))
+               (target-index (position (cdr edge) nodes :key (lambda (entry) (getf entry :name))
+                                       :test #'equal)))
+          (when (and source-index target-index
+                     (<= scroll source-index)
+                     (<= scroll target-index)
+                     (< (+ top (- (nth source-index offsets) base-offset))
+                        (+ (second rect) (fourth rect)))
+                     (< (+ top (- (nth target-index offsets) base-offset))
+                        (+ (second rect) (fourth rect))))
+            (sgeo.backend.opengl:ui-line renderer (+ x 5)
+              (+ top (- (nth source-index offsets) base-offset) (floor (nth source-index heights) 2))
+              (+ x width -5) (+ top (- (nth target-index offsets) base-offset) 13)
+              (%color :accent) :width 1d0))))
+      (loop for node in (nthcdr scroll nodes) for node-index from scroll
+            for name = (getf node :name)
+            for card-y = (+ top (- (nth node-index offsets) base-offset))
+            for card-height = (nth node-index heights)
+            while (< (+ card-y card-height) (+ (second rect) (fourth rect))) do
+        (let* ((selected-p (equal name (editor-ui-procedural-node-selection state)))
+               (kind (getf node :kind))
+            (header (if (eq kind :parameter) (format nil "~A · PARÂMETRO" name)
+                           (format nil "~A · ~A" name (getf node :generator)))))
+          (sgeo.backend.opengl:ui-rect renderer x card-y width card-height
+            (%color (if selected-p :panel-selected :panel-raised)))
+          (sgeo.backend.opengl:ui-rect renderer x card-y width card-height
+            (%color :border) :filled-p nil)
+          (sgeo.backend.opengl:ui-text renderer (+ x 8) (+ card-y 7)
+            (%clip-text renderer header (- width 16)) (%color (if selected-p :accent :text)))
+          (%ui-hit state x card-y width 24 (list :procedural-select-node name))
+          (when (eq kind :parameter)
+            (let ((value (getf node :value)))
+              (sgeo.backend.opengl:ui-text renderer (+ x 8) (+ card-y 31) "Valor" (%color :muted))
+              (if (realp value)
+                  (%ui-button state (+ x 54) (+ card-y 27) (max 52 (- width 62)) 24
+                    (%workspace-number value) (list :procedural-edit-parameter name value)
+                    :compact-p t :text-scale 0.8d0)
+                  (sgeo.backend.opengl:ui-text renderer (+ x 54) (+ card-y 31)
+                    (%clip-text renderer (%format-inspector-value value) (- width 62)) (%color :text)))))
+          (when (eq kind :generator)
+            (let* ((parameters (getf node :parameters)) (row-y (+ card-y 29)))
+              (loop for (parameter value) on parameters by #'cddr
+                    do (sgeo.backend.opengl:ui-text renderer (+ x 8) row-y
+                         (%clip-text renderer (format nil "~A" parameter) 58) (%color :muted))
+                       (if (realp value)
+                           (%ui-button state (+ x 68) (- row-y 4) (max 48 (- width 76)) 23
+                             (%workspace-number value)
+                             (list :procedural-edit-generator name parameter value)
+                             :compact-p t :text-scale 0.75d0)
+                           (sgeo.backend.opengl:ui-text renderer (+ x 68) row-y
+                             (%clip-text renderer (%format-inspector-value value) (- width 76))
+                             (%color :text)))
+                       (incf row-y 23))
+            (let* ((inputs (getf node :inputs))
+                   (input-y (+ card-y 29 (* 23 (/ (length parameters) 2)))))
+              (if inputs
+                  (loop for input in inputs for index from 0
+                        do (%ui-button state (+ x 8) input-y (- width 16) 23
+                             (format nil "Entrada: ~A  ↻" input)
+                             (list :procedural-rewire name inputs index)
+                             :compact-p t :text-scale 0.75d0)
+                           (incf input-y 23))
+                  (%ui-button state (+ x 8) input-y (- width 16) 23 "Conectar entrada"
+                    (list :procedural-rewire name nil 0) :compact-p t :text-scale 0.75d0)))))
+          (when (getf node :dirty-p)
+            (sgeo.backend.opengl:ui-text renderer (+ x width -52) (+ card-y 7) "ALTERADO"
+                                         (%color :orange) :scale 0.75d0))
+          (when (getf node :error)
+            (sgeo.backend.opengl:ui-text renderer (+ x 8) (+ card-y card-height -16)
+              (%clip-text renderer (getf node :error) (- width 16) 0.75d0) (%color :red))))))))
+
 (defun %draw-workspace-layout (state rect)
   (let* ((x (+ (first rect) 10)) (y (+ (second rect) 40))
          (ui (editor-ui-ui-renderer state)))
@@ -337,6 +446,7 @@
     (:debug (%draw-workspace-debug state rect))
     (:profile (%draw-workspace-profile state rect))
     (:timeline (%draw-workspace-timeline state rect))
+    (:nodes (%draw-workspace-nodes state rect))
     (:layout (%draw-workspace-layout state rect))
     (otherwise nil)))
 
@@ -350,6 +460,44 @@
          (setf (editor-ui-show-hierarchy-p state) t
                (editor-ui-left-width state)
                (max 320 (or (editor-ui-left-width state) 214))))
+       t)
+      (:procedural-select-node
+       (setf (editor-ui-procedural-node-selection state) (second action))
+       t)
+      (:procedural-edit-parameter
+       (setf (editor-ui-procedural-node-selection state) (second action)
+             (editor-ui-focus state) :inspector
+             (editor-ui-field-edit state) (list :procedural-parameter (second action))
+             (editor-ui-field-string state) (princ-to-string (third action)))
+       t)
+      (:procedural-edit-generator
+       (setf (editor-ui-procedural-node-selection state) (second action)
+             (editor-ui-focus state) :inspector
+             (editor-ui-field-edit state)
+             (list :procedural-generator-parameter (second action) (third action))
+             (editor-ui-field-string state) (princ-to-string (fourth action)))
+       t)
+      (:procedural-evaluate
+       (sgeo.editor:evaluate-procedural-node editor (third action) :object (second action))
+       t)
+      (:procedural-rewire
+       (destructuring-bind (kind node-name inputs index) action
+         (declare (ignore kind))
+         (let* ((view (sgeo.editor:editor-procedural-node-view editor))
+                (nodes (getf view :nodes))
+                (candidates (remove node-name (mapcar (lambda (node) (getf node :name)) nodes)
+                                    :test #'equal)))
+           (when candidates
+             (let* ((current (nth index inputs))
+                    (current-index (position current candidates :test #'equal))
+                    (candidate (nth (mod (1+ (or current-index -1)) (length candidates))
+                                    candidates))
+                    (new-inputs (copy-list inputs)))
+               (if (< index (length new-inputs))
+                   (setf (nth index new-inputs) candidate)
+                   (setf new-inputs (append new-inputs (list candidate))))
+               (setf (editor-ui-procedural-node-selection state) node-name)
+               (sgeo.editor:rewire-procedural-input editor node-name new-inputs)))))
        t)
       (:workspace-toggle
        (case (second action)

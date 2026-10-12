@@ -40,7 +40,7 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes sbcl libglfw3 libglfw3-dev libopenal1 xvfb xauth mesa-utils libgl1-mesa-dri spirv-tools
+          sudo apt-get install --yes sbcl libglfw3 libglfw3-dev libopenal1 libfreetype6-dev fonts-dejavu-core xvfb xauth mesa-utils libgl1-mesa-dri spirv-tools
           echo "SGEO_NATIVE_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib" >> "$GITHUB_ENV"
 
       - name: Install macOS graphics and audio prerequisites
@@ -115,6 +115,15 @@ jobs:
 
       - name: Run headless Lisp test suite
         run: sbcl --dynamic-space-size 4096 --script tools/test.lisp
+
+      - name: Validate live advanced geometry and compute on Linux
+        if: matrix.target == 'linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          sbcl --dynamic-space-size 4096 --load tools/bootstrap.lisp --eval '(ql:quickload (quote (:sgeo/examples/advanced :sgeo/editor/opengl)))' --quit
+          xvfb-run -a sbcl --dynamic-space-size 4096 --script tools/m8-gpu-check.lisp
+          xvfb-run -a sbcl --dynamic-space-size 4096 --script tools/m8-editor-check.lisp
 
       - name: Build native release package
         shell: bash
@@ -524,6 +533,7 @@ jobs:
             artifacts/releases/sgeo-game-0.1.0-${{ matrix.target }}.*
             artifacts/releases/sgeo-game-0.1.0-${{ matrix.target }}/**/*.tar.gz
             artifacts/releases/sgeo-game-0.1.0-${{ matrix.target }}/**/*.zip
+            artifacts/m8-*
             ${{ runner.temp }}/sgeo-headless-report.json
             ${{ runner.temp }}/sgeo-headless.log
             ${{ runner.temp }}/sgeo-gl-profile.json

@@ -19,7 +19,8 @@
   :serial t
   :components ((:file "src/geometry/package") (:file "src/geometry/mesh")
                (:file "src/geometry/topology") (:file "src/geometry/polygons")
-               (:file "src/geometry/primitives") (:file "src/geometry/operations")))
+               (:file "src/geometry/primitives") (:file "src/geometry/operations")
+               (:file "src/geometry/editing") (:file "src/geometry/modeling")))
 
 (asdf:defsystem #:sgeo/scene
   :description "Mundo vivo, hierarquia, transformações, materiais e câmeras."
@@ -27,6 +28,33 @@
   :serial t
   :components ((:file "src/scene/package") (:file "src/scene/scene")
                (:file "src/scene/materials")))
+
+(asdf:defsystem #:sgeo/fields
+  :description "Campos implícitos autoritativos e extração de superfícies."
+  :depends-on (#:sgeo/geometry) :serial t
+  :components ((:file "src/fields/package") (:file "src/fields/fields")))
+
+(asdf:defsystem #:sgeo/curves
+  :description "Curvas e superfícies paramétricas com tesselação editável."
+  :depends-on (#:sgeo/geometry) :serial t
+  :components ((:file "src/curves/package") (:file "src/curves/curves")))
+
+(asdf:defsystem #:sgeo/procedural
+  :description "Grafos de dependência e geradores vivos de geometria."
+  :depends-on (#:sgeo/scene) :serial t
+  :components ((:file "src/procedural/package") (:file "src/procedural/dependency")))
+
+(asdf:defsystem #:sgeo/geometry-processing
+  :description "Protocolo de processamento derivado de geometria em GPU."
+  :depends-on (#:sgeo/geometry) :serial t
+  :components ((:file "src/geometry-processing/package") (:file "src/geometry-processing/protocol")))
+
+(asdf:defsystem #:sgeo/advanced
+  :description "Subdivisão e CSG robusto sobre o núcleo geométrico."
+  :depends-on (#:sgeo/geometry #:sgeo/fields #:sgeo/curves #:sgeo/procedural #:sgeo/geometry-processing)
+  :serial t
+  :components ((:file "src/advanced/package") (:file "src/advanced/subdivision")
+               (:file "src/advanced/booleans") (:file "src/advanced/predicates")))
 
 (asdf:defsystem #:sgeo/animation
   :description "Pistas, esqueletos e deformações derivados dos objetos vivos."
@@ -71,7 +99,7 @@
 (asdf:defsystem #:sgeo
   :description "API pública do núcleo headless do S-Geometry/CL."
   :version "0.1.0"
-  :depends-on (#:sgeo/animation)
+  :depends-on (#:sgeo/animation #:sgeo/advanced)
   :in-order-to ((test-op (test-op "sgeo/tests")))
   :components ((:file "src/package")))
 
@@ -98,11 +126,12 @@
 
 (asdf:defsystem #:sgeo/backend/opengl
   :description "Backend OpenGL 3.3 com cl-glfw3, cl-opengl e CFFI."
-  :depends-on (#:sgeo/platform #:sgeo/render #:cl-glfw3 #:cl-opengl #:cffi)
+  :depends-on (#:sgeo/platform #:sgeo/render #:sgeo/geometry-processing #:cl-glfw3 #:cl-opengl #:cffi)
   :serial t
   :components ((:file "backends/opengl/package")
                (:file "backends/opengl/glfw")
-               (:file "backends/opengl/opengl") (:file "backends/opengl/profiling")))
+               (:file "backends/opengl/opengl") (:file "backends/opengl/profiling")
+               (:file "backends/opengl/geometry-processing")))
 
 (asdf:defsystem #:sgeo/backend/vulkan
   :description "Backend Vulkan: recursos, passes HDR/PBR e apresentação GLFW."
@@ -128,17 +157,27 @@
   :depends-on (#:sgeo/runtime/vulkan #:sgeo/serialization)
   :components ((:file "examples/pbr-scene")))
 
+(asdf:defsystem #:sgeo/examples/core
+  :description "Pacote compartilhado dos exemplos, utilizável sem janela."
+  :depends-on (#:sgeo)
+  :components ((:file "examples/package")))
+
 (asdf:defsystem #:sgeo/examples
   :description "Demonstrações executáveis dos marcos M0, M1 e M2."
-  :depends-on (#:sgeo/runtime)
+  :depends-on (#:sgeo/runtime #:sgeo/examples/core)
   :serial t
-  :components ((:file "examples/package") (:file "examples/triangle")
+  :components ((:file "examples/triangle")
                (:file "examples/live-scene") (:file "examples/kernel-scene")))
 
 (asdf:defsystem #:sgeo/examples/animation
   :description "Personagem glTF animado no mesmo editor e mundo vivo."
   :depends-on (#:sgeo/editor/opengl)
   :components ((:file "examples/animation-scene")))
+
+(asdf:defsystem #:sgeo/examples/advanced
+  :description "Cena de geometria avançada para edição Lisp e ferramentas procedurais."
+  :depends-on (#:sgeo/examples/core)
+  :components ((:file "examples/advanced-scene")))
 
 (asdf:defsystem #:sgeo/examples/simulation
   :description "Boids e jogo interativo construídos com os sistemas de simulação."
@@ -151,7 +190,7 @@
 
 (asdf:defsystem #:sgeo/serialization
   :description "Persistência legível, validada e versionada de cenas Lisp."
-  :depends-on (#:sgeo/animation)
+  :depends-on (#:sgeo/animation #:sgeo/procedural)
   :serial t
   :components ((:file "src/serialization/package") (:file "src/serialization/serialization")
                (:file "src/serialization/animation")))
@@ -194,6 +233,7 @@
                (:file "src/editor/transactions") (:file "src/editor/selection")
                (:file "src/editor/timeline")
                (:file "src/editor/commands") (:file "src/editor/inspector")
+               (:file "src/editor/procedural")
                (:file "src/editor/listener") (:file "src/editor/api")))
 
 (asdf:defsystem #:sgeo/tests
@@ -217,7 +257,10 @@
                (:file "tests/debug-draw") (:file "tests/simulation") (:file "tests/boids")
                (:file "tests/game") (:file "tests/m6-edge-cases") (:file "tests/runtime-input")
                (:file "tests/assets") (:file "tests/diagnostics") (:file "tests/packaging")
-               (:file "tests/deployment"))
+               (:file "tests/deployment") (:file "tests/advanced-geometry") (:file "tests/boolean-robustness")
+               (:file "tests/modeling")
+               (:file "tests/fields") (:file "tests/curves") (:file "tests/procedural")
+               (:file "tests/geometry-processing"))
   :perform (test-op (operation component)
              (declare (ignore operation component))
              (unless (uiop:symbol-call :sgeo.tests :run-tests)

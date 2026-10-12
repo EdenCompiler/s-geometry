@@ -1,0 +1,267 @@
+(in-package #:sgeo.advanced)
+
+(defstruct (%embedded-triangle (:constructor %embedded-triangle (face ids points bounds))) face ids points bounds)
+
+(defun %exact-position (mesh vertex)
+  (map 'list #'rational (sgeo.geometry:vertex-position mesh vertex)))
+
+(defun %sign (value) (cond ((minusp value) -1) ((plusp value) 1) (t 0)))
+(defun %point-in-triangle-p (point triangle)
+  (destructuring-bind (a b c) triangle
+    (let* ((normal (%rcross (%r- b a) (%r- c a)))
+           (plane (%rdot normal (%r- point a))))
+      (and (zerop plane)
+           (let ((s1 (%rdot normal (%rcross (%r- b a) (%r- point a))))
+                 (s2 (%rdot normal (%rcross (%r- c b) (%r- point b))))
+                 (s3 (%rdot normal (%rcross (%r- a c) (%r- point c)))))
+             (or (and (not (minusp s1)) (not (minusp s2)) (not (minusp s3)))
+                 (and (not (plusp s1)) (not (plusp s2)) (not (plusp s3)))))))))
+
+(defun %drop-axis (point axis)
+  (loop for coordinate in point for index from 0 unless (= index axis) collect coordinate))
+(defun %orient2 (a b c)
+  (let ((ab (%r- b a)) (ac (%r- c a)))
+    (- (* (first ab) (second ac)) (* (second ab) (first ac)))))
+(defun %between-p (x a b) (<= (min a b) x (max a b)))
+(defun %point-on-segment2-p (p a b)
+  (and (zerop (%orient2 a b p))
+       (%between-p (first p) (first a) (first b))
+       (%between-p (second p) (second a) (second b))))
+(defun %point-on-segment3-p (p a b)
+  (let ((direction (%r- b a)))
+    (and (every #'zerop (%rcross (%r- p a) direction))
+         (loop for value in p for x in a for y in b always (%between-p value x y)))))
+(defun %triangle-bounds (points)
+  (loop for axis below 3
+        collect (cons (reduce #'min points :key (lambda (point) (nth axis point)))
+                      (reduce #'max points :key (lambda (point) (nth axis point))))))
+(defun %triangle-bounds-overlap-p (a b)
+  (loop for interval-a in a for interval-b in b
+        always (and (<= (car interval-a) (cdr interval-b))
+                    (<= (car interval-b) (cdr interval-a)))))
+(defun %segment-intersections-coplanar (a b c d axis)
+  (let* ((a2 (%drop-axis a axis)) (b2 (%drop-axis b axis))
+         (c2 (%drop-axis c axis)) (d2 (%drop-axis d axis))
+         (o1 (%orient2 a2 b2 c2)) (o2 (%orient2 a2 b2 d2))
+         (o3 (%orient2 c2 d2 a2)) (o4 (%orient2 c2 d2 b2)))
+    (cond
+      ((and (< (* o1 o2) 0) (< (* o3 o4) 0))
+       (let* ((r (%r- b a)) (s (%r- d c))
+              (axis-u (first (%drop-axis r axis)))
+              (axis-v (second (%drop-axis r axis)))
+              (sx (first (%drop-axis s axis))) (sy (second (%drop-axis s axis)))
+              (cx (first (%drop-axis (%r- c a) axis))) (cy (second (%drop-axis (%r- c a) axis)))
+              (denominator (- (* axis-u sy) (* axis-v sx))))
+         (list (%r+ a (%r* (/ (- (* cx sy) (* cy sx)) denominator) r)))))
+      (t
+       (remove-duplicates
+        (append (when (%point-on-segment2-p c2 a2 b2) (list c))
+                (when (%point-on-segment2-p d2 a2 b2) (list d))
+                (when (%point-on-segment2-p a2 c2 d2) (list a))
+                (when (%point-on-segment2-p b2 c2 d2) (list b)))
+        :test #'equal)))))
+
+(defun %coplanar-triangle-intersections (a b)
+  (let* ((normal (%rcross (%r- (second a) (first a)) (%r- (third a) (first a))))
+         (axis (position-if-not #'zerop normal)))
+    (remove-duplicates
+     (append (loop for point in a when (%point-in-triangle-p point b) collect point)
+             (loop for point in b when (%point-in-triangle-p point a) collect point)
+             (loop for p in a for q in (append (rest a) (list (first a)))
+                   append (loop for r in b for s in (append (rest b) (list (first b)))
+                                append (%segment-intersections-coplanar p q r s axis))))
+     :test #'equal)))
+
+(defun %edge-plane-crossing (a b da db)
+  (%r+ a (%r* (/ da (- da db)) (%r- b a))))
+(defun %triangle-plane-intersections (triangle plane)
+  (let* ((points (list (first triangle) (second triangle) (third triangle)))
+         (distances (mapcar (lambda (p) (%plane-distance plane p)) points)))
+    (remove-duplicates
+     (append (loop for a in points for da in distances when (zerop da) collect a)
+             (loop for a in points for b in (append (rest points) (list (first points)))
+                   for da in distances for db in (append (rest distances) (list (first distances)))
+                   when (< (* da db) 0) collect (%edge-plane-crossing a b da db)))
+     :test #'equal)))
+
+(defun %triangle-intersection-points (first-triangle second-triangle)
+  (let* ((a first-triangle) (b second-triangle)
+         (plane-a (%points-plane a)) (plane-b (%points-plane b))
+         (normal-cross (%rcross (%csg-plane-normal plane-a) (%csg-plane-normal plane-b))))
+    (if (and (every #'zerop normal-cross)
+             (zerop (%plane-distance plane-a (first b))))
+        (%coplanar-triangle-intersections a b)
+        (remove-duplicates
+         (append (loop for point in a when (%point-in-triangle-p point b) collect point)
+                 (loop for point in b when (%point-in-triangle-p point a) collect point)
+                 (loop for point in (%triangle-plane-intersections a plane-b)
+                       when (%point-in-triangle-p point b) collect point)
+                 (loop for point in (%triangle-plane-intersections b plane-a)
+                       when (%point-in-triangle-p point a) collect point))
+         :test #'equal))))
+
+(defun %point-on-allowed-shared-feature-p (point common-ids coordinate-table)
+  (case (length common-ids)
+    (0 nil)
+    (1 (equal point (gethash (first common-ids) coordinate-table)))
+    (2 (%point-on-segment3-p point (gethash (first common-ids) coordinate-table)
+                             (gethash (second common-ids) coordinate-table)))
+    (otherwise nil)))
+
+(defun %point-on-triangle-boundary-p (point triangle)
+  (loop for a in triangle for b in (append (rest triangle) (list (first triangle)))
+        thereis (%point-on-segment3-p point a b)))
+
+(defun %intersection-contained-in-triangle-boundaries-p (points triangle-a triangle-b)
+  "Retorna verdadeiro apenas quando a interseção está na borda de ambos os triângulos."
+  (and points
+       (every (lambda (point)
+                (and (%point-on-triangle-boundary-p point triangle-a)
+                     (%point-on-triangle-boundary-p point triangle-b)))
+              points)
+       (or (= (length points) 1)
+           (and (loop for a in triangle-a
+                      for b in (append (rest triangle-a) (list (first triangle-a)))
+                      thereis (every (lambda (point) (%point-on-segment3-p point a b)) points))
+                (loop for a in triangle-b
+                      for b in (append (rest triangle-b) (list (first triangle-b)))
+                      thereis (every (lambda (point) (%point-on-segment3-p point a b)) points))))))
+
+(defun %collect-embedded-triangles (mesh)
+  (let ((triangles nil) (coordinates (make-hash-table)))
+    (dolist (vertex (sgeo.geometry:mesh-vertices mesh))
+      (setf (gethash (sgeo.geometry:handle-index vertex) coordinates) (%exact-position mesh vertex)))
+    (dolist (face (sgeo.geometry:mesh-faces mesh))
+      (let ((face-index (sgeo.geometry:handle-index face)))
+        (dolist (triangle (sgeo.geometry:triangulate-face mesh face))
+          (let ((ids (mapcar #'sgeo.geometry:handle-index triangle)))
+            (let ((points (mapcar (lambda (id) (gethash id coordinates)) ids)))
+              (push (%embedded-triangle face-index ids points (%triangle-bounds points)) triangles))))))
+    (values (nreverse triangles) coordinates)))
+
+(defun %validate-triangle-embedding (triangles coordinates face-components)
+  (loop for tail on triangles for first = (first tail) do
+    (dolist (second (rest tail))
+      ;; A triangulação interna de uma face não representa uma colisão consigo mesma.
+      (unless (or (= (%embedded-triangle-face first) (%embedded-triangle-face second))
+                  (not (%triangle-bounds-overlap-p (%embedded-triangle-bounds first)
+                                                   (%embedded-triangle-bounds second))))
+        (let* ((shared (intersection (%embedded-triangle-ids first) (%embedded-triangle-ids second)))
+               (points (%triangle-intersection-points (%embedded-triangle-points first)
+                                                      (%embedded-triangle-points second)))
+               (same-component (= (gethash (%embedded-triangle-face first) face-components)
+                                  (gethash (%embedded-triangle-face second) face-components)))
+               (invalid-intersection
+                 (if same-component
+                     (or (> (length shared) 2)
+                         (some (lambda (point)
+                                 (not (%point-on-allowed-shared-feature-p point shared coordinates)))
+                               points))
+                     (and points
+                          (not (%intersection-contained-in-triangle-boundaries-p
+                                points (%embedded-triangle-points first) (%embedded-triangle-points second)))))))
+          (when invalid-intersection
+            (error 'sgeo.geometry:geometry-error :context "embedding de sólido"
+                   :message "Faces não adjacentes se cruzam ou se sobrepõem geometricamente."))))))
+  t)
+
+(defun %face-components (mesh faces)
+  (let ((by-index (make-hash-table)) (visited (make-hash-table)) (components nil))
+    (dolist (face faces) (setf (gethash (sgeo.geometry:handle-index face) by-index) face))
+    (dolist (face faces)
+      (let ((index (sgeo.geometry:handle-index face)))
+        (unless (gethash index visited)
+          (let ((stack (list face)) (component nil))
+            (setf (gethash index visited) t)
+            (loop while stack for current = (pop stack) do
+              (push current component)
+              (dolist (neighbor (sgeo.geometry:face-neighbors mesh current))
+                (let ((neighbor-index (sgeo.geometry:handle-index neighbor)))
+                  (unless (gethash neighbor-index visited)
+                    (setf (gethash neighbor-index visited) t)
+                    (push (gethash neighbor-index by-index) stack)))))
+            (push (nreverse component) components)))))
+    (nreverse components)))
+
+(defun %face-component-map (mesh faces)
+  (let ((result (make-hash-table)))
+    (loop for component in (%face-components mesh faces) for component-index from 0 do
+      (dolist (face component)
+        (setf (gethash (sgeo.geometry:handle-index face) result) component-index)))
+    result))
+
+(defun %triangle-volume-six (triangle origin)
+  (let ((points (mapcar (lambda (point) (%r- point origin)) triangle)))
+    (%rdot (first points) (%rcross (second points) (third points)))))
+(defun %component-triangles (component triangles)
+  (let ((face-set (make-hash-table)))
+    (dolist (face component) (setf (gethash (sgeo.geometry:handle-index face) face-set) t))
+    (remove-if-not (lambda (triangle) (gethash (%embedded-triangle-face triangle) face-set)) triangles)))
+(defun %component-volume-six (component-triangles)
+  (let ((origin (first (%embedded-triangle-points (first component-triangles)))))
+    (loop for triangle in component-triangles
+          sum (%triangle-volume-six (%embedded-triangle-points triangle) origin))))
+
+(defun %ray-triangle-hit (origin direction triangle)
+  (destructuring-bind (a b c) triangle
+    (let* ((edge1 (%r- b a)) (edge2 (%r- c a))
+           (h (%rcross direction edge2)) (det (%rdot edge1 h)))
+      (if (zerop det) :miss
+          (let* ((s (%r- origin a)) (u (/ (%rdot s h) det))
+                 (q (%rcross s edge1)) (v (/ (%rdot direction q) det))
+                 (distance (/ (%rdot edge2 q) det)))
+            (cond ((or (minusp u) (minusp v) (> (+ u v) 1) (<= distance 0)) :miss)
+                  ((or (zerop u) (zerop v) (= (+ u v) 1)) :ambiguous)
+                  (t :hit)))))))
+(defun %point-inside-component-p (point component-triangles)
+  (loop for direction in '((1 17 113) (19 1 37) (31 73 1) (7 29 101) (103 11 43))
+        for statuses = (mapcar (lambda (triangle) (%ray-triangle-hit point direction (%embedded-triangle-points triangle))) component-triangles)
+        unless (member :ambiguous statuses)
+          do (return (oddp (count :hit statuses)))
+        finally (error 'sgeo.geometry:geometry-error :context "orientação de cascas"
+                       :message "Não foi possível classificar a contenção entre cascas.")))
+
+(defun %point-on-component-surface-p (point component-triangles)
+  (some (lambda (triangle)
+          (%point-in-triangle-p point (%embedded-triangle-points triangle)))
+        component-triangles))
+
+(defun %validate-shell-orientations (mesh faces triangles)
+  (let ((components (%face-components mesh faces)))
+    (when (some (lambda (component) (null (%component-triangles component triangles))) components)
+      (error 'sgeo.geometry:geometry-error :context "orientação de cascas" :message "A casca não contém triângulos."))
+    (loop for component in components for shell-triangles = (%component-triangles component triangles)
+          for volume = (%component-volume-six shell-triangles)
+          do (when (zerop volume)
+               (error 'sgeo.geometry:geometry-error :context "orientação de cascas" :message "A casca tem volume orientado nulo."))
+             (let* ((depth (count-if (lambda (other)
+                                       (when (not (eq other component))
+                                         (let* ((other-triangles (%component-triangles other triangles))
+                                                (probe (loop for triangle in shell-triangles
+                                                             thereis (loop for point in (%embedded-triangle-points triangle)
+                                                                           unless (%point-on-component-surface-p point other-triangles)
+                                                                             do (return point)))))
+                                           (unless probe
+                                             (error 'sgeo.geometry:geometry-error :context "orientação de cascas"
+                                                    :message "Não foi possível escolher um ponto de teste fora da superfície de contato."))
+                                           (%point-inside-component-p probe other-triangles))))
+                                     components))
+                    (expected-positive (evenp depth)))
+               (unless (eq (plusp volume) expected-positive)
+                 (error 'sgeo.geometry:geometry-error :context "orientação de cascas"
+                        :message "A orientação da casca não corresponde à profundidade de aninhamento.")))))
+  t)
+
+(defun %validate-solid-embedding (mesh)
+  "Valida exatamente que as faces da malha formem uma superfície sólida embutida."
+  (unless (and (typep mesh 'sgeo.geometry:half-edge-mesh)
+               (handler-case (progn (sgeo.geometry:validate-mesh mesh) t) (error () nil))
+               (plusp (length (sgeo.geometry:mesh-faces mesh)))
+               (not (some (lambda (edge) (sgeo.geometry:boundary-edge-p mesh edge))
+                          (sgeo.geometry:mesh-edges mesh))))
+    (error 'sgeo.geometry:geometry-error :context "embedding de sólido"
+           :message "A malha precisa ser topologicamente válida, fechada e não vazia."))
+  (multiple-value-bind (triangles coordinates) (%collect-embedded-triangles mesh)
+    (%validate-triangle-embedding triangles coordinates (%face-component-map mesh (sgeo.geometry:mesh-faces mesh)))
+    (%validate-shell-orientations mesh (sgeo.geometry:mesh-faces mesh) triangles))
+  t)

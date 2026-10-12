@@ -89,7 +89,12 @@
                                   (sgeo.geometry::%with-kernel-lock (mesh)
                                     (sgeo.geometry::%clone-state (sgeo.geometry::%mesh-state mesh))))
                                  (sgeo.geometry:triangle-mesh (sgeo.core:compile-render-data mesh)))))
-                       meshes)))))
+                       meshes)
+       :procedural
+       (loop for object in objects
+             when (typep object 'sgeo.procedural:procedural-object)
+               collect (list object (sgeo.procedural::%snapshot-dependency-graph
+                                     (sgeo.procedural:procedural-graph object))))))))
 
 (defun %arena-merge-generations (desired current)
   "Mantém o limite de slots e avança gerações mesmo quando o histórico encolhe."
@@ -153,6 +158,11 @@
                  (sgeo.geometry:set-mesh-data mesh (sgeo.geometry:render-mesh-positions data)
                                                    (sgeo.geometry:render-mesh-indices data)
                                                    (sgeo.geometry:render-mesh-normals data))))))
+          (dolist (entry (editor-snapshot-procedural snapshot))
+            (let ((object (first entry)))
+              (sgeo.procedural::%restore-dependency-graph
+               (sgeo.procedural:procedural-graph object) (second entry))
+              (sgeo.procedural::%rebase-procedural-freeze-after-graph-restore object)))
           (setf (sgeo.scene:world-selection world) (editor-snapshot-selection snapshot)
                 (editor-elements editor) nil
                 (%inspect-stack editor) nil

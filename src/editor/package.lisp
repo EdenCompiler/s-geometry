@@ -19,6 +19,8 @@
    #:submit-listener #:listener-busy-p #:start-editor-listener #:stop-editor-listener
    #:start-editor-server #:inspect-value #:inspect-editor #:inspect-back #:set-inspector-number
    #:start-editor-terminal #:stop-editor-terminal
-   #:editor-view-camera #:projected-position #:pick-element))
+   #:editor-view-camera #:projected-position #:pick-element
+   #:editor-procedural-node-view #:edit-procedural-parameter
+   #:edit-procedural-generator-parameter #:evaluate-procedural-node #:rewire-procedural-input))
 (in-package #:sgeo.editor)
 (defvar *editor* nil)

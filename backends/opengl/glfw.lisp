@@ -17,6 +17,8 @@
 (defvar *glfw-initialized-p* nil)
 (defvar *glfw-windows* (make-hash-table :test #'eql))
 (defvar *last-glfw-error* nil)
+(defvar *opengl-context-version* '(3 3)
+  "Versão mínima solicitada ao GLFW; compute exige (4 3) ou superior.")
 
 (glfw:def-error-callback %record-glfw-error (message)
   (setf *last-glfw-error* message))
@@ -147,6 +149,12 @@
   (unless (and (integerp width) (plusp width) (integerp height) (plusp height))
     (error 'sgeo.core:validation-error :context "janela GLFW"
            :message "Largura e altura precisam ser inteiros positivos."))
+  (unless (and (listp *opengl-context-version*) (= (length *opengl-context-version*) 2)
+               (every (lambda (part) (and (integerp part) (not (minusp part)))) *opengl-context-version*)
+               (or (> (first *opengl-context-version*) 3)
+                   (and (= (first *opengl-context-version*) 3) (>= (second *opengl-context-version*) 3))))
+    (error 'sgeo.core:validation-error :context "versão do contexto OpenGL"
+           :message "Informe (major minor), com versão mínima 3.3."))
   (%acquire-glfw)
   (let ((native nil) (window nil) (registered nil))
     (handler-case
@@ -154,8 +162,8 @@
           (setf *last-glfw-error* nil)
           (setf native
                 (glfw:create-window :width width :height height :title title
-                                    :visible visible :context-version-major 3
-                                    :context-version-minor 3
+                                    :visible visible :context-version-major (first *opengl-context-version*)
+                                    :context-version-minor (second *opengl-context-version*)
                                     :opengl-profile :opengl-core-profile
                                     #+darwin :opengl-forward-compat #+darwin t))
           (glfw:make-context-current native)
