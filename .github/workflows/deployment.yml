@@ -291,6 +291,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw '--help failed' }
             & $exe --unknown-ci-option
             if ($LASTEXITCODE -eq 0) { throw 'Unknown option unexpectedly succeeded' }
+            $LASTEXITCODE = 0
             $corrupt = Join-Path $env:RUNNER_TEMP 'sgeo corrupted bundle'
             Copy-Item -Recurse $relocated $corrupt
             $asset = Join-Path $corrupt 'resources/game.sgp'
@@ -302,6 +303,7 @@ jobs:
             Get-Content $log
             if ($LASTEXITCODE -eq 0) { throw 'Corrupted game asset pack unexpectedly loaded' }
             if (-not (Select-String -Path $log -Pattern 'asset|pack|integrity|sha-256' -Quiet)) { throw 'Corruption failure had no asset diagnostic' }
+            $LASTEXITCODE = 0
           } finally {
             $env:USERPROFILE = $originalHome
             $env:HOME = $originalHome

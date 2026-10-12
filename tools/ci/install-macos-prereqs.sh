@@ -32,7 +32,10 @@ echo "$sbcl_prefix/bin" >> "$GITHUB_PATH"
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 export HOMEBREW_NO_INSTALL_CLEANUP=1
-brew install --ignore-dependencies glfw openal-soft
+brew install --ignore-dependencies openal-soft
+
+patched_glfw_prefix="$task_dir/patched-glfw"
+bash "$(dirname "$0")/build-patched-glfw-macos.sh" "$patched_glfw_prefix"
 
 headers_archive="SPIRV-Headers-vulkan-sdk-1.4.363.0.tar.gz"
 headers_sha256="5b3a0d099f5c7649e29c0938476c462e71d66ad89a0bde42fa1ba3eb476956c9"
@@ -60,6 +63,6 @@ cmake --build "$task_dir/spirv-build" --target spirv-val --parallel "$(sysctl -n
 "$task_dir/spirv-build/tools/spirv-val" --version
 echo "$task_dir/spirv-build/tools" >> "$GITHUB_PATH"
 
-native_path="$(brew --prefix glfw)/lib:$(brew --prefix openal-soft)/lib"
+native_path="$patched_glfw_prefix/lib:$(brew --prefix openal-soft)/lib"
 echo "SGEO_NATIVE_LIBRARY_PATH=$native_path" >> "$GITHUB_ENV"
 echo "DYLD_LIBRARY_PATH=$native_path${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" >> "$GITHUB_ENV"

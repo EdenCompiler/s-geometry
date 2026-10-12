@@ -1,0 +1,16 @@
+--- a/src/nsgl_context.m
++++ b/src/nsgl_context.m
+@@ -305,6 +305,13 @@
+         [[NSOpenGLPixelFormat alloc] initWithAttributes:attribs];
+     if (window->context.nsgl.pixelFormat == nil)
+     {
++        // Tenta o renderizador de software apenas se a selecao acelerada falhar.
++        assert(attribs[0] == NSOpenGLPFAAccelerated);
++        window->context.nsgl.pixelFormat =
++            [[NSOpenGLPixelFormat alloc] initWithAttributes:attribs + 1];
++    }
++    if (window->context.nsgl.pixelFormat == nil)
++    {
+         _glfwInputError(GLFW_FORMAT_UNAVAILABLE,
+                         "NSGL: Failed to find a suitable pixel format");
+         return GLFW_FALSE;
