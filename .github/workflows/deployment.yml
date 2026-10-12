@@ -46,16 +46,38 @@ jobs:
       - name: Install macOS graphics and audio prerequisites
         if: matrix.target == 'macos'
         run: |
-          brew update
-          brew install sbcl glfw openal-soft spirv-tools
-          native_path="$(brew --prefix glfw)/lib:$(brew --prefix openal-soft)/lib"
-          echo "SGEO_NATIVE_LIBRARY_PATH=$native_path" >> "$GITHUB_ENV"
-          echo "DYLD_LIBRARY_PATH=$native_path${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          bash tools/ci/install-macos-prereqs.sh
+
+      - name: Identify Windows vcpkg cache inputs
+        if: matrix.target == 'windows'
+        id: vcpkg-inputs
+        shell: pwsh
+        env:
+          WORKFLOW_HASH: ${{ hashFiles('.github/workflows/deployment.yml') }}
+        run: |
+          $vcpkg = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkg) { $vcpkg = 'C:\vcpkg' }
+          $commit = (& git -C $vcpkg rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not $commit) { throw 'Could not identify the installed vcpkg revision' }
+          "revision=$commit" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "key=windows-x64-$commit-$env:WORKFLOW_HASH" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Restore Windows vcpkg binary cache
+        if: matrix.target == 'windows'
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-${{ steps.vcpkg-inputs.outputs.key }}
+          restore-keys: vcpkg-windows-x64-${{ steps.vcpkg-inputs.outputs.revision }}-
 
       - name: Install Windows compiler and native libraries
         if: matrix.target == 'windows'
         shell: pwsh
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}\vcpkg-binary-cache
         run: |
+          New-Item -ItemType Directory -Force $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
           choco install sbcl --yes --no-progress
           $vcpkg = $env:VCPKG_INSTALLATION_ROOT
           if (-not $vcpkg) { $vcpkg = 'C:\vcpkg' }
@@ -80,6 +102,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'SPIR-V validator did not start' }
           Write-Output "SPIRV-Tools validator: $spirvVersion"
           $spirvToolsBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Save Windows vcpkg binary cache
+        if: matrix.target == 'windows' && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-${{ steps.vcpkg-inputs.outputs.key }}
 
       - name: Bootstrap Lisp dependencies and compile game systems
         run: sbcl --dynamic-space-size 4096 --script tools/ci-setup.lisp
@@ -239,6 +268,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Package manifest or layout validation failed' }
           try {
             Set-Location $env:RUNNER_TEMP
+            [System.IO.Directory]::SetCurrentDirectory($env:RUNNER_TEMP)
             if (Test-Path (Join-Path $originalHome 'quicklisp')) {
               Move-Item (Join-Path $originalHome 'quicklisp') $hiddenQuicklisp
             }
@@ -275,6 +305,8 @@ jobs:
           } finally {
             $env:USERPROFILE = $originalHome
             $env:HOME = $originalHome
+            [System.IO.Directory]::SetCurrentDirectory($env:RUNNER_TEMP)
+            Set-Location $env:RUNNER_TEMP
             if (Test-Path $hiddenCheckout) { Move-Item $hiddenCheckout $env:GITHUB_WORKSPACE }
             if (Test-Path $hiddenQuicklisp) { Move-Item $hiddenQuicklisp (Join-Path $originalHome 'quicklisp') }
           }
@@ -353,6 +385,11 @@ jobs:
           assert any("glfw" in name for name in native), f"GLFW library not bundled: {native}"
           assert any("openal" in name for name in native), f"OpenAL library not bundled: {native}"
           PY
+          clang -O2 -Wall -Wextra -Werror -Wno-deprecated-declarations \
+            "$GITHUB_WORKSPACE/tools/ci/macos-gl-capabilities.c" -framework OpenGL \
+            -o "$RUNNER_TEMP/sgeo-cgl-probe"
+          "$RUNNER_TEMP/sgeo-cgl-probe" >"$RUNNER_TEMP/sgeo-cgl-capabilities.json"
+          cat "$RUNNER_TEMP/sgeo-cgl-capabilities.json"
           restore_inputs() {
             if [ -d "$hidden_checkout" ]; then mv "$hidden_checkout" "$GITHUB_WORKSPACE"; fi
             if [ -d "$hidden_quicklisp" ]; then mv "$hidden_quicklisp" "$original_home/quicklisp"; fi
@@ -468,6 +505,7 @@ jobs:
             ${{ runner.temp }}/sgeo-gl-profile.json
             ${{ runner.temp }}/sgeo-gl.log
             ${{ runner.temp }}/sgeo-capture.ppm
+            ${{ runner.temp }}/sgeo-cgl-capabilities.json
             ${{ runner.temp }}/sgeo-*.log
           if-no-files-found: warn
           compression-level: 0
