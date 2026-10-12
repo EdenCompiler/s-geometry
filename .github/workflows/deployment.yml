@@ -332,7 +332,7 @@ jobs:
           New-Item -ItemType Directory -Force $extract | Out-Null
           & 'C:\Program Files\7-Zip\7z.exe' x -y $mesaArchive "-o$extract"
           if ($LASTEXITCODE -ne 0) { throw 'Could not extract the pinned Mesa package' }
-          foreach ($dll in @('opengl32.dll', 'libglapi.dll', 'libgallium_wgl.dll')) {
+          foreach ($dll in @('opengl32.dll', 'libgallium_wgl.dll')) {
             $source = Join-Path $extract "x64/$dll"
             if (-not (Test-Path $source)) { throw "Pinned Mesa package is missing $source" }
             Copy-Item $source $renderPackage
