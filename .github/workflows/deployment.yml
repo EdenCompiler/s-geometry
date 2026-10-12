@@ -14,17 +14,23 @@ permissions:
 
 jobs:
   native-package:
-    name: ${{ matrix.target }} native build and package check
+    name: ${{ matrix.artifact }} native build and package check
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
             target: linux
+            artifact: linux
           - os: windows-2022
             target: windows
+            artifact: windows
           - os: macos-15
             target: macos
+            artifact: macos-arm64
+          - os: macos-15-intel
+            target: macos
+            artifact: macos-intel
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -174,9 +180,16 @@ jobs:
             exit 1
           fi
           grep -Eiq 'asset|pack|integrity|sha-256' "$RUNNER_TEMP/sgeo-corrupt.log"
-          xvfb-run --auto-servernum --server-args='-screen 0 1280x800x24' \
+          if xvfb-run --auto-servernum --server-args='-screen 0 1280x800x24' \
             "$relocated/sgeo-game" --hidden --self-test --frames 240 \
-            --profile "$RUNNER_TEMP/sgeo-gl-profile.json" --capture "$RUNNER_TEMP/sgeo-capture.ppm"
+            --profile "$RUNNER_TEMP/sgeo-gl-profile.json" --capture "$RUNNER_TEMP/sgeo-capture.ppm" \
+            >"$RUNNER_TEMP/sgeo-gl.log" 2>&1; then
+            cat "$RUNNER_TEMP/sgeo-gl.log"
+          else
+            status=$?
+            cat "$RUNNER_TEMP/sgeo-gl.log"
+            exit "$status"
+          fi
           test -s "$RUNNER_TEMP/sgeo-gl-profile.json"
           test -s "$RUNNER_TEMP/sgeo-capture.ppm"
           python3 - "$RUNNER_TEMP/sgeo-gl-profile.json" <<'PY'
@@ -236,6 +249,7 @@ jobs:
             $profilePath = Join-Path $env:RUNNER_TEMP 'sgeo-headless-report.json'
             $headlessLog = Join-Path $env:RUNNER_TEMP 'sgeo-headless.log'
             & $exe --headless --self-test --diagnostics --profile $profilePath *> $headlessLog
+            Get-Content $headlessLog
             if ($LASTEXITCODE -ne 0) { throw 'Relocated game self-test failed' }
             if (-not (Select-String -Path $headlessLog -Pattern 'Standalone game self-test passed: 3 coins, open door, won; editor absent.' -Quiet)) { throw 'Self-test completion diagnostic missing' }
             if (-not (Test-Path $profilePath)) { throw 'Profile report missing' }
@@ -255,6 +269,7 @@ jobs:
             [System.IO.File]::WriteAllBytes($asset, $bytes)
             $log = Join-Path $env:RUNNER_TEMP 'sgeo-corrupt.log'
             & (Join-Path $corrupt 'sgeo-game.exe') --headless --self-test --assets $asset *> $log
+            Get-Content $log
             if ($LASTEXITCODE -eq 0) { throw 'Corrupted game asset pack unexpectedly loaded' }
             if (-not (Select-String -Path $log -Pattern 'asset|pack|integrity|sha-256' -Quiet)) { throw 'Corruption failure had no asset diagnostic' }
           } finally {
@@ -293,7 +308,8 @@ jobs:
           $capturePath = Join-Path $env:RUNNER_TEMP 'sgeo-capture.ppm'
           $runLog = Join-Path $env:RUNNER_TEMP 'sgeo-gl.log'
           & $exe --hidden --self-test --frames 240 --diagnostics --profile $profilePath --capture $capturePath *> $runLog
-          if ($LASTEXITCODE -ne 0) { Get-Content $runLog; throw 'Windows hidden OpenGL self-test failed' }
+          Get-Content $runLog
+          if ($LASTEXITCODE -ne 0) { throw 'Windows hidden OpenGL self-test failed' }
           if (-not (Select-String -Path $runLog -Pattern 'Standalone game self-test passed: 3 coins, open door, won; editor absent.' -Quiet)) { throw 'Hidden-window game self-test completion diagnostic missing' }
           if (-not (Test-Path $capturePath) -or (Get-Item $capturePath).Length -le 16) { throw 'OpenGL framebuffer capture is missing or empty' }
           $report = Get-Content -Raw $profilePath | ConvertFrom-Json
@@ -348,8 +364,13 @@ jobs:
           export HOME="$isolated_home"
           mkdir -p "$HOME"
           exe="$relocated/sgeo-game.app/Contents/MacOS/sgeo-game"
-          "$exe" --headless --self-test --diagnostics --profile "$RUNNER_TEMP/sgeo-headless-report.json" >"$RUNNER_TEMP/sgeo-headless.log" 2>&1
-          cat "$RUNNER_TEMP/sgeo-headless.log"
+          if "$exe" --headless --self-test --diagnostics --profile "$RUNNER_TEMP/sgeo-headless-report.json" >"$RUNNER_TEMP/sgeo-headless.log" 2>&1; then
+            cat "$RUNNER_TEMP/sgeo-headless.log"
+          else
+            status=$?
+            cat "$RUNNER_TEMP/sgeo-headless.log"
+            exit "$status"
+          fi
           test -s "$RUNNER_TEMP/sgeo-headless-report.json"
           grep -q 'Standalone game self-test passed: 3 coins, open door, won; editor absent.' "$RUNNER_TEMP/sgeo-headless.log"
           python3 - "$RUNNER_TEMP/sgeo-headless-report.json" <<'PY'
@@ -365,10 +386,14 @@ jobs:
             echo 'Unknown options unexpectedly succeeded.' >&2
             exit 1
           fi
-          # macOS hosted runners expose Cocoa and the system OpenGL framework;
-          # run the hidden GLFW path on the same native packaged executable.
-          "$exe" --hidden --self-test --frames 240 --profile "$RUNNER_TEMP/sgeo-gl-profile.json" --capture "$RUNNER_TEMP/sgeo-capture.ppm" >"$RUNNER_TEMP/sgeo-gl.log" 2>&1
-          cat "$RUNNER_TEMP/sgeo-gl.log"
+          # Exercita Cocoa/OpenGL no mesmo executável nativo empacotado.
+          if "$exe" --hidden --self-test --frames 240 --profile "$RUNNER_TEMP/sgeo-gl-profile.json" --capture "$RUNNER_TEMP/sgeo-capture.ppm" >"$RUNNER_TEMP/sgeo-gl.log" 2>&1; then
+            cat "$RUNNER_TEMP/sgeo-gl.log"
+          else
+            status=$?
+            cat "$RUNNER_TEMP/sgeo-gl.log"
+            exit "$status"
+          fi
           grep -q 'Standalone game self-test passed: 3 coins, open door, won; editor absent.' "$RUNNER_TEMP/sgeo-gl.log"
           test -s "$RUNNER_TEMP/sgeo-gl-profile.json"
           test -s "$RUNNER_TEMP/sgeo-capture.ppm"
@@ -384,15 +409,18 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sgeo-release-${{ matrix.target }}
+          name: sgeo-release-${{ matrix.artifact }}
           path: |
             artifacts/releases/sgeo-game-0.1.0-${{ matrix.target }}
             artifacts/releases/sgeo-game-0.1.0-${{ matrix.target }}.*
             artifacts/releases/sgeo-game-0.1.0-${{ matrix.target }}/**/*.tar.gz
             artifacts/releases/sgeo-game-0.1.0-${{ matrix.target }}/**/*.zip
             ${{ runner.temp }}/sgeo-headless-report.json
+            ${{ runner.temp }}/sgeo-headless.log
             ${{ runner.temp }}/sgeo-gl-profile.json
+            ${{ runner.temp }}/sgeo-gl.log
             ${{ runner.temp }}/sgeo-capture.ppm
+            ${{ runner.temp }}/sgeo-*.log
           if-no-files-found: warn
           compression-level: 0
           retention-days: 14

@@ -16,6 +16,16 @@
 (defvar *glfw-users* 0)
 (defvar *glfw-initialized-p* nil)
 (defvar *glfw-windows* (make-hash-table :test #'eql))
+(defvar *last-glfw-error* nil)
+
+(glfw:def-error-callback %record-glfw-error (message)
+  (setf *last-glfw-error* message))
+
+(defun %glfw-failure-message (condition)
+  "Inclui o diagnóstico nativo do GLFW quando uma chamada falha."
+  (if *last-glfw-error*
+      (format nil "~A (GLFW: ~A)" condition *last-glfw-error*)
+      (princ-to-string condition)))
 
 (defmacro with-native-graphics-environment (() &body body)
   "Mascara e restaura armadilhas de ponto flutuante ao chamar os drivers."
@@ -54,10 +64,12 @@
 (defun %acquire-glfw ()
   (bt:with-lock-held (*glfw-lock*)
     (unless *glfw-initialized-p*
+      (setf *last-glfw-error* nil)
+      (glfw:set-error-callback '%record-glfw-error)
       (handler-case (glfw:initialize)
         (error (condition)
           (error 'sgeo.core:platform-error :context "inicialização GLFW"
-                 :message (princ-to-string condition)))))
+                 :message (%glfw-failure-message condition)))))
       (setf *glfw-initialized-p* t)
       #+sbcl (pushnew #'%terminate-glfw-on-exit sb-ext:*exit-hooks*)
     (incf *glfw-users*)))
@@ -139,6 +151,7 @@
   (let ((native nil) (window nil) (registered nil))
     (handler-case
         (progn
+          (setf *last-glfw-error* nil)
           (setf native
                 (glfw:create-window :width width :height height :title title
                                     :visible visible :context-version-major 3
@@ -163,7 +176,7 @@
                    condition
                    (make-condition 'sgeo.core:platform-error
                                    :context "criação da janela"
-                                   :message (princ-to-string condition))))))))
+                                   :message (%glfw-failure-message condition))))))))
 
 (defmethod sgeo.platform:poll-events ((window glfw-window))
   (declare (ignore window))
