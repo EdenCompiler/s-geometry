@@ -227,7 +227,9 @@
       (cffi:close-foreign-library (cffi:foreign-library-name library)))
     (setf asdf:*central-registry* nil)
     #+sbcl (sb-ext:save-lisp-and-die executable :executable t :toplevel #'%release-main
-                                    :save-runtime-options t :compression t)
+                                    :save-runtime-options t
+                                    :compression (not (null (member :sb-core-compression
+                                                                    *features*))))
     #-sbcl (error 'build-error :message "A geração de executáveis exige SBCL."))))
 
 (defun %absolute-assets (manifest root)

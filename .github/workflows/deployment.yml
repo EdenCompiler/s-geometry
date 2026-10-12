@@ -386,6 +386,54 @@ jobs:
             echo 'Unknown options unexpectedly succeeded.' >&2
             exit 1
           fi
+          # Testa o GLFW empacotado diretamente para separar limite do runner de falha do jogo.
+          if python3 - "$relocated/sgeo-game.app/Contents/Frameworks" >"$RUNNER_TEMP/sgeo-glfw-probe.log" 2>&1 <<'PY'
+          import ctypes, glob, pathlib, sys
+          candidates = glob.glob(str(pathlib.Path(sys.argv[1]) / "*glfw*.dylib"))
+          if not candidates:
+              raise SystemExit(f"No bundled GLFW dylib found under {sys.argv[1]}")
+          glfw = ctypes.CDLL(candidates[0])
+          error_callback_type = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.c_char_p)
+          def on_error(code, description):
+              message = description.decode("utf-8", "replace") if description else "(sem descrição)"
+              print(f"GLFW_ERROR {code}: {message}", flush=True)
+          callback = error_callback_type(on_error)
+          glfw.glfwSetErrorCallback.argtypes = [error_callback_type]
+          glfw.glfwSetErrorCallback.restype = ctypes.c_void_p
+          glfw.glfwInit.restype = ctypes.c_int
+          glfw.glfwWindowHint.argtypes = [ctypes.c_int, ctypes.c_int]
+          glfw.glfwCreateWindow.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p]
+          glfw.glfwCreateWindow.restype = ctypes.c_void_p
+          glfw.glfwDestroyWindow.argtypes = [ctypes.c_void_p]
+          glfw.glfwTerminate.restype = None
+          glfw.glfwSetErrorCallback(callback)
+          if not glfw.glfwInit():
+              raise SystemExit("GLFW_PROBE_INIT_FAILED")
+          glfw.glfwWindowHint(0x00020004, 0)  # GLFW_VISIBLE
+          glfw.glfwWindowHint(0x00022002, 3)  # GLFW_CONTEXT_VERSION_MAJOR
+          glfw.glfwWindowHint(0x00022003, 3)  # GLFW_CONTEXT_VERSION_MINOR
+          glfw.glfwWindowHint(0x00022008, 0x00032001)  # GLFW_OPENGL_PROFILE / CORE
+          glfw.glfwWindowHint(0x00022006, 1)  # GLFW_OPENGL_FORWARD_COMPAT
+          window = glfw.glfwCreateWindow(64, 64, b"sgeo GLFW capability probe", None, None)
+          if window:
+              print("GLFW_PROBE_WINDOW_CREATED")
+              glfw.glfwDestroyWindow(window)
+          else:
+              print("GLFW_PROBE_WINDOW_FAILED")
+          glfw.glfwTerminate()
+          if not window:
+              raise SystemExit(1)
+          PY
+          then
+            probe_status=0
+          else
+            probe_status=$?
+          fi
+          cat "$RUNNER_TEMP/sgeo-glfw-probe.log"
+          if [ "$probe_status" -ne 0 ] && [ "${{ matrix.artifact }}" = "macos-intel" ]; then
+            echo 'Direct GLFW probe failed on the Intel macOS runner.' >&2
+            exit "$probe_status"
+          fi
           # Exercita Cocoa/OpenGL no mesmo executável nativo empacotado.
           if "$exe" --hidden --self-test --frames 240 --profile "$RUNNER_TEMP/sgeo-gl-profile.json" --capture "$RUNNER_TEMP/sgeo-capture.ppm" >"$RUNNER_TEMP/sgeo-gl.log" 2>&1; then
             cat "$RUNNER_TEMP/sgeo-gl.log"
