@@ -338,20 +338,42 @@ jobs:
             Copy-Item $source $renderPackage
           }
           $env:GALLIUM_DRIVER = 'llvmpipe'
+          $originalHome = $env:USERPROFILE
+          $hiddenCheckout = Join-Path $env:RUNNER_TEMP 'sgeo render checkout hidden'
+          $hiddenQuicklisp = Join-Path $env:RUNNER_TEMP 'sgeo render quicklisp hidden'
+          $isolatedHome = Join-Path $env:RUNNER_TEMP 'sgeo render isolated home'
           $profilePath = Join-Path $env:RUNNER_TEMP 'sgeo-gl-profile.json'
           $capturePath = Join-Path $env:RUNNER_TEMP 'sgeo-capture.ppm'
           $runLog = Join-Path $env:RUNNER_TEMP 'sgeo-gl.log'
-          & $exe --hidden --self-test --frames 240 --diagnostics --profile $profilePath --capture $capturePath *> $runLog
-          Get-Content $runLog
-          if ($LASTEXITCODE -ne 0) { throw 'Windows hidden OpenGL self-test failed' }
-          if (-not (Select-String -Path $runLog -Pattern 'Standalone game self-test passed: 3 coins, open door, won; editor absent.' -Quiet)) { throw 'Hidden-window game self-test completion diagnostic missing' }
-          if (-not (Test-Path $capturePath) -or (Get-Item $capturePath).Length -le 16) { throw 'OpenGL framebuffer capture is missing or empty' }
-          $report = Get-Content -Raw $profilePath | ConvertFrom-Json
-          if ($report.'schema-version' -ne 1 -or $report.frame -ne 240) { throw 'OpenGL profile schema/frame count mismatch' }
-          if ($report.'renderer-info'.'editor-loaded' -ne $false) { throw 'Editor was loaded in the release profile' }
-          $rendererDevice = [string]$report.'renderer-info'.device
-          if (-not $rendererDevice.ToLowerInvariant().Contains('llvmpipe')) { throw "Profile does not prove Mesa llvmpipe: $rendererDevice" }
-          if ($report.errors.Count -ne 0) { throw 'OpenGL profile recorded runtime errors' }
+          try {
+            Set-Location $env:RUNNER_TEMP
+            [System.IO.Directory]::SetCurrentDirectory($env:RUNNER_TEMP)
+            if (Test-Path (Join-Path $originalHome 'quicklisp')) {
+              Move-Item (Join-Path $originalHome 'quicklisp') $hiddenQuicklisp
+            }
+            Move-Item $env:GITHUB_WORKSPACE $hiddenCheckout
+            New-Item -ItemType Directory -Force $isolatedHome | Out-Null
+            $env:USERPROFILE = $isolatedHome
+            $env:HOME = $isolatedHome
+            & $exe --hidden --self-test --frames 240 --diagnostics --profile $profilePath --capture $capturePath *> $runLog
+            Get-Content $runLog
+            if ($LASTEXITCODE -ne 0) { throw 'Windows hidden OpenGL self-test failed' }
+            if (-not (Select-String -Path $runLog -Pattern 'Standalone game self-test passed: 3 coins, open door, won; editor absent.' -Quiet)) { throw 'Hidden-window game self-test completion diagnostic missing' }
+            if (-not (Test-Path $capturePath) -or (Get-Item $capturePath).Length -le 16) { throw 'OpenGL framebuffer capture is missing or empty' }
+            $report = Get-Content -Raw $profilePath | ConvertFrom-Json
+            if ($report.'schema-version' -ne 1 -or $report.frame -ne 240) { throw 'OpenGL profile schema/frame count mismatch' }
+            if ($report.'renderer-info'.'editor-loaded' -ne $false) { throw 'Editor was loaded in the release profile' }
+            $rendererDevice = [string]$report.'renderer-info'.device
+            if (-not $rendererDevice.ToLowerInvariant().Contains('llvmpipe')) { throw "Profile does not prove Mesa llvmpipe: $rendererDevice" }
+            if ($report.errors.Count -ne 0) { throw 'OpenGL profile recorded runtime errors' }
+          } finally {
+            $env:USERPROFILE = $originalHome
+            $env:HOME = $originalHome
+            [System.IO.Directory]::SetCurrentDirectory($env:RUNNER_TEMP)
+            Set-Location $env:RUNNER_TEMP
+            if (Test-Path $hiddenCheckout) { Move-Item $hiddenCheckout $env:GITHUB_WORKSPACE }
+            if (Test-Path $hiddenQuicklisp) { Move-Item $hiddenQuicklisp (Join-Path $originalHome 'quicklisp') }
+          }
 
       - name: Validate relocated macOS package
         if: matrix.target == 'macos'
