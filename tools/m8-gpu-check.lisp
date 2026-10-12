@@ -210,4 +210,10 @@
         (ignore-errors (glfw:destroy-window window)))
       (glfw:terminate))))
 
-(m8-run-gpu-check)
+;; A criação do contexto também chama o driver e precisa proteger as armadilhas Lisp.
+(let ((saved-modes #+sbcl (sb-int:get-floating-point-modes) #-sbcl nil))
+  (sgeo.backend.opengl:with-native-graphics-environment ()
+    (m8-run-gpu-check))
+  #+sbcl
+  (m8-check (equalp saved-modes (sb-int:get-floating-point-modes))
+            "native check did not restore the caller's floating-point modes"))

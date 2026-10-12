@@ -32,13 +32,13 @@ sbcl --script tools/test.lisp
 
 The tests cover subdivision counts and boundaries; rotated, concave, nested, touching, nearly coplanar, and large-offset CSG inputs; malformed solids and rollback; closed field meshes; curve derivatives and seams; modeling invariants; generator redefinition and failed-edit recovery; safe graph files; frozen scene reopening; undo/redo; and retention of public exports when optional systems load.
 
-The native compute check passes on an AMD Radeon Graphics device with Mesa OpenGL 4.6:
+The native compute check passes on an AMD Radeon Graphics device with Mesa OpenGL 4.6 and on llvmpipe with OpenGL 4.5:
 
 ```bash
 sbcl --script tools/m8-gpu-check.lisp
 ```
 
-It checks a 24-vertex triangle box, an 8-vertex half-edge box, and a 120-vertex open grid. Readback positions match the analytical transformation, and normals match a CPU reference. It also checks stable half-edge handles, revision-bound normal caches, invalid-output rollback, restoration of caller GL bindings, and deletion of temporary buffers, shaders, and programs.
+It checks a 24-vertex triangle box, an 8-vertex half-edge box, and a 120-vertex open grid. Readback positions match the analytical transformation, and normals match a CPU reference. It also checks stable half-edge handles, revision-bound normal caches, invalid-output rollback, restoration of caller GL bindings and floating-point modes, and deletion of temporary buffers, shaders, and programs. Context creation uses the same floating-point guard as the engine's native graphics entry points.
 
 The bounded editor check and fresh-process reopening are run with:
 
@@ -48,7 +48,7 @@ sbcl --dynamic-space-size 4096 --script tools/m8-editor-check.lisp
 
 It passes **74 checks over 15 frames with 29 geometry uploads**, without render or platform errors. It changes subdivision and CSG sources, a field radius, Bézier surface controls, and a sweep path, then publishes each result into its existing scene mesh. It also clicks the Nodes parameter and rewiring controls, redefines a running generator, recovers from a failed generation, processes a live mesh on the GPU, and exercises cache invalidation and undo/redo. The saved scene reopens with equivalent geometry and references in a fresh headless SBCL process, including a manual procedural-mesh edit that survives the first world update. IDs are local to each session and are normalized for the comparison.
 
-The default launcher also completes a two-frame native check and opens the editor with its editable box.
+The same editor check passes under llvmpipe with Xvfb. The default launcher also completes a two-frame native check and opens the editor with its editable box.
 
 The Linux CI job also runs both native checks under Xvfb with Mesa software rendering. The existing native package matrix continues to exercise headless tests and standalone builds on Linux, Windows, and both macOS architectures.
 
