@@ -124,6 +124,7 @@ jobs:
           sbcl --dynamic-space-size 4096 --load tools/bootstrap.lisp --eval '(ql:quickload (quote (:sgeo/examples/advanced :sgeo/editor/opengl)))' --quit
           xvfb-run -a sbcl --dynamic-space-size 4096 --script tools/m8-gpu-check.lisp
           xvfb-run -a sbcl --dynamic-space-size 4096 --script tools/m8-editor-check.lisp
+          xvfb-run -a sbcl --dynamic-space-size 4096 --script tools/m8-procedural-types-check.lisp
 
       - name: Build native release package
         shell: bash

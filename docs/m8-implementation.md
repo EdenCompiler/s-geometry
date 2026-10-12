@@ -18,13 +18,13 @@ The [geometry guide](advanced-geometry.md) has examples. `tools/run.lisp` remain
 
 Replacement operations preserve the mesh object and retire old element handles. Batch position edits, including GPU publication, preserve vertex handles. Successful edits advance the mesh revision; rejected edits keep the previous valid state.
 
-Procedural generators execute ordinary Lisp functions registered in the current image. A changed source or generator invalidates its consumers. Unchanged frames reuse the cached result; a failed evaluation retains the previous mesh and its error until its inputs change. The node cards expose that same graph, with numeric editing, evaluation, and input rewiring through editor transactions.
+Procedural generators execute ordinary Lisp functions registered in the current image. A changed source or generator invalidates its consumers. Unchanged frames reuse the cached result; a failed evaluation retains the previous mesh and its error until its inputs change. Regeneration preserves the geometry instance when its type stays the same. Switching between triangle and half-edge output keeps the scene object and publishes a new mesh of the requested type into both the scene and the node cache. The node cards expose that same graph, with numeric editing, evaluation, and input rewiring through editor transactions.
 
 Scene version 3 stores graph data and a geometry snapshot. It stores generator names rather than executable functions. Reopened meshes retain saved manual edits until the graph changes or regeneration is requested. Missing generators leave the saved geometry visible with an error on the node. Undo and redo restore graph parameters and geometry together, while keeping revisions monotonic.
 
 ## Verification
 
-The integrated headless suite passes **2,841 checks**, with no skips or failures, without loading GLFW or OpenGL packages:
+The integrated headless suite passes **2,851 checks**, with no skips or failures, without loading GLFW or OpenGL packages:
 
 ```bash
 sbcl --script tools/test.lisp
@@ -48,9 +48,9 @@ sbcl --dynamic-space-size 4096 --script tools/m8-editor-check.lisp
 
 It passes **74 checks over 15 frames with 29 geometry uploads**, without render or platform errors. It changes subdivision and CSG sources, a field radius, Bézier surface controls, and a sweep path, then publishes each result into its existing scene mesh. It also clicks the Nodes parameter and rewiring controls, redefines a running generator, recovers from a failed generation, processes a live mesh on the GPU, and exercises cache invalidation and undo/redo. The saved scene reopens with equivalent geometry and references in a fresh headless SBCL process, including a manual procedural-mesh edit that survives the first world update. IDs are local to each session and are normalized for the comparison.
 
-The same editor check passes under llvmpipe with Xvfb. The default launcher also completes a two-frame native check and opens the editor with its editable box.
+The same editor check passes under llvmpipe with Xvfb. A separate seven-frame check, `tools/m8-procedural-types-check.lisp`, switches a live generator from half-edge to triangle output and back, verifies stable cached geometry on unchanged frames, and confirms that both replacements reach the viewport while the scene object keeps its ID. The default launcher also completes a two-frame native check and opens the editor with its editable box.
 
-The Linux CI job also runs both native checks under Xvfb with Mesa software rendering. The existing native package matrix continues to exercise headless tests and standalone builds on Linux, Windows, and both macOS architectures.
+The Linux CI job runs all three native checks under Xvfb with Mesa software rendering. The existing native package matrix continues to exercise headless tests and standalone builds on Linux, Windows, and both macOS architectures.
 
 ## Limits
 

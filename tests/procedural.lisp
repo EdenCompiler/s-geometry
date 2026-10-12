@@ -70,6 +70,37 @@
       (is (= 24d0 (sgeo.geometry:mesh-surface-area mesh)))
       (is (eq mesh (sgeo.procedural:node-value graph :mesh))))))
 
+(test procedural-generator-cross-type-output-stays-published
+  (let* ((graph (sgeo.procedural:make-dependency-graph))
+         (object nil) (world nil))
+    (sgeo.procedural:define-generator
+     'procedural-typed-output nil
+     (lambda (parameters dependencies)
+       (declare (ignore parameters dependencies))
+       (sgeo.geometry:make-half-edge-box)))
+    (sgeo.procedural:add-generator-node graph :mesh 'procedural-typed-output nil)
+    (setf object (sgeo.procedural:make-procedural-object graph :mesh)
+          world (sgeo.scene:make-world :root object))
+    (let ((object-id (sgeo.core:object-id object)))
+      (dolist (constructor '(sgeo.geometry:make-box sgeo.geometry:make-half-edge-box))
+        (let ((make-result constructor))
+          (sgeo.procedural:define-generator
+           'procedural-typed-output nil
+           (lambda (parameters dependencies)
+             (declare (ignore parameters dependencies))
+             (funcall make-result))))
+        (sgeo.scene:update-world world 0d0)
+        (let* ((mesh (sgeo.scene:mesh-object-geometry object))
+               (revision (sgeo.core:object-revision mesh)))
+          (is (typep mesh (if (eq constructor 'sgeo.geometry:make-box)
+                             'sgeo.geometry:triangle-mesh 'sgeo.geometry:half-edge-mesh)))
+          (is (eq mesh (sgeo.procedural:node-value graph :mesh)))
+          (sgeo.scene:update-world world 0d0)
+          (sgeo.scene:update-world world 0d0)
+          (is (eq mesh (sgeo.scene:mesh-object-geometry object)))
+          (is (= revision (sgeo.core:object-revision mesh)))
+          (is (= object-id (sgeo.core:object-id object))))))))
+
 (test procedural-failed-regeneration-retains-live-mesh-and-records-error
   (let* ((graph (sgeo.procedural:make-dependency-graph))
          (object nil))

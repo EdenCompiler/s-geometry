@@ -592,7 +592,9 @@
                      (sgeo.geometry:mesh-positions geometry)
                      (sgeo.geometry:mesh-indices geometry)
                      (sgeo.geometry:mesh-normals geometry)))
-                  (t (setf (slot-value object 'sgeo.scene::geometry) geometry)))
+                  ;; Ao trocar o tipo, o cache também passa a apontar para a nova geometria.
+                  (t (setf (slot-value object 'sgeo.scene::geometry) geometry
+                           current geometry)))
                 (touch-object object :procedural-geometry-changed)
                 (setf (graph-node-value node) current)
                 (%refresh-node-input-signatures graph node)))
