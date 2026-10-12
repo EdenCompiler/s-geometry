@@ -1,6 +1,6 @@
 # Deployment and diagnostics
 
-This guide describes the current source-level build, asset, standalone-game, and profiling interfaces. Native packages are built for the host running the build; the build code does not cross-compile. The package layouts described below are implemented in the source, but platform success should be claimed only after that platform is exercised by CI or a native-host run.
+This guide describes the build, asset, standalone-game, and profiling interfaces. Native packages are built for the host running the build; the build code does not cross-compile. Linux, Windows, macOS ARM64, and macOS Intel packages have passed native-host CI, including relocated headless and rendered runs.
 
 ## Build a native application package
 
@@ -24,6 +24,8 @@ The deployment API is in `sgeo.deployment`. Register an application with an entr
 
 `define-application` options include `:native-libraries`, `:debug`, and `:target` (`:desktop`, `:linux`, `:windows`, or `:macos`). `:desktop` selects the current host. The build compiles the manifest into `game.sgp`, saves a fresh SBCL executable image in a child process, assembles the package, and verifies its manifest. It rejects a target different from `host-target`; build each release on its target host. A release image also refuses to include the editor unless `:debug` is true.
 
+Core compression is enabled when the build host's SBCL supports it. SBCL builds without core compression still produce a standalone executable.
+
 The repository's example build command is:
 
 ```sh
@@ -31,9 +33,11 @@ sbcl --script tools/build.lisp --output artifacts/releases/my-game \
   --native-lib /path/to/optional-native-library.so
 ```
 
-`--native-lib` can be repeated. The example build script tries to resolve OpenAL on the build host. The release-image builder also records loaded GLFW/OpenAL libraries, resolves those recognized libraries, and packages them alongside explicitly supplied libraries. At startup, the runtime adds the package's native-library directory to CFFI's search path. For a bundled GLFW or OpenAL library, it also rebinds that CFFI library name to the absolute path of the packaged file before loading it, so a same-named host copy does not take precedence. System graphics drivers and transitive native dependencies are still host prerequisites unless separately supplied.
+`--native-lib` can be repeated. The example build script tries to resolve OpenAL on the build host. The release-image builder records loaded native CFFI libraries, resolves configured and discovered libraries, and packages them alongside explicitly supplied libraries. At startup, the runtime adds the package's native-library directory to CFFI's search path and rebinds every bundled, registered CFFI library name to the absolute path of its packaged file before loading it. A same-named host copy therefore does not take precedence, including when the application uses a custom CFFI library. System graphics drivers and other transitive native dependencies remain host prerequisites unless separately supplied.
 
-The package layouts currently emitted by the source are:
+Set `SGEO_NATIVE_LIBRARY_PATH` before invoking a source launcher or build to select native-library directories. Use colon-separated directories on Linux/macOS and semicolon-separated directories on Windows. The bootstrap applies them in the supplied order in fresh build processes too.
+
+The package layouts are:
 
 | Host target | Application and resources | Archive |
 | --- | --- | --- |
@@ -93,7 +97,11 @@ For example:
 ./sgeo-game --headless --frames 240 --profile run.json --diagnostics
 ```
 
-The executable name and launcher location depend on the native package layout. The example has no editor in its release image and does not start a REPL.
+The executable name and launcher location depend on the native package layout. The example has no editor in its release image and does not start a REPL. [Native CI run 38217645456](https://github.com/EdenCompiler/s-geometry/actions/runs/38217645456) passed on Linux, Windows, macOS ARM64, and macOS Intel. Each relocated package completed 240 headless and 240 rendered frames with the checkout and Quicklisp unavailable, an isolated home, and no reported errors. Package trees and archive contents match their hash manifests. Captures show the won game, and all four renderers produced actual GPU timing and pipeline records.
+
+Hosted CI uses software OpenGL drivers: Mesa llvmpipe on Linux and Windows, and Apple Software Renderer on macOS. Windows uses a temporary copy with pinned Mesa DLLs; the published package uses the host's graphics driver. macOS CI builds a [pinned GLFW patch](../tools/ci/glfw-macos-software-retry.md) that retries without the acceleration constraint only when the accelerated pixel-format request fails, preserving the required core profile. To build that library on macOS, run `bash tools/ci/build-patched-glfw-macos.sh INSTALL_PREFIX` and put `INSTALL_PREFIX/lib` first in `SGEO_NATIVE_LIBRARY_PATH` before building the application.
+
+Local Linux acceptance additionally masks SBCL and installed GLFW/OpenAL files. Separate 240-frame rendered runs passed with OpenAL's null driver and without audio. The null-driver run verifies the optional audio path; physical audio playback is not part of this check. See [M7 verification notes](m7-implementation.md) for the complete evidence.
 
 ## CPU and GPU profiling
 
@@ -117,6 +125,6 @@ Scope aggregates group by subsystem, function, object class, thread, and frame p
 
 Host CPU timestamps are monotonic nanoseconds relative to that profiler's origin. GPU samples are actual query durations in nanoseconds and retain the originating CPU frame ID. The profiler places delayed GPU records at that frame's recorded host start for visualization, but GPU query time and host time are distinct clock domains: this is frame correlation, not absolute CPU/GPU clock synchronization. Pipeline-statistics records are integer counters associated with the same frame metadata.
 
-Reports state capabilities independently for CPU, allocation, GPU duration, and GPU pipeline statistics. The OpenGL backend uses elapsed-time queries; it adds primitives-generated and, when the extension is present, vertices-submitted, primitives-submitted, and vertex-shader-invocation counters. Vulkan uses timestamp queries and requests input-assembly primitive, vertex-shader invocation, and fragment-shader invocation counters when the physical device supports pipeline-statistics queries. GPU duration is reported only after actual query results are available. Allocation measurement uses SBCL `SB-EXT:GET-BYTES-CONSED`; it measures process-wide allocation, not just the current thread. Scope labels identify where code ran, but an allocation delta may include allocations from other threads that ran concurrently. On other Common Lisp implementations allocation metrics are reported as unavailable. GPU and pipeline statistics are reported as unavailable until the active backend actually supplies measurements; availability depends on backend/device support. No pipeline statistic should be inferred from a CPU draw count.
+Reports state capabilities independently for CPU, allocation, GPU duration, and GPU pipeline statistics. These are opt-in measurements: a backend/device may report GPU timing or individual pipeline counters as unavailable when the relevant query support is absent. The OpenGL backend uses elapsed-time queries; it adds primitives-generated and, when the extension is present, vertices-submitted, primitives-submitted, and vertex-shader-invocation counters. Vulkan uses timestamp queries and requests input-assembly primitive, vertex-shader invocation, and fragment-shader invocation counters when the physical device supports pipeline-statistics queries. GPU duration is reported only after actual query results are available. Allocation measurement uses SBCL `SB-EXT:GET-BYTES-CONSED`; it measures process-wide allocation, not just the current thread. Scope labels identify where code ran, but an allocation delta may include allocations from other threads that ran concurrently. On other Common Lisp implementations allocation metrics are reported as unavailable. No pipeline statistic should be inferred from a CPU draw count.
 
 Profilers also retain bounded diagnostic error and recovery records. Use `record-diagnostic-error` and `record-recovery` when the application wants these events included in the same report. Keep profiling disabled or do not bind a collector in normal operation; `with-profile-scope` executes its body directly when no enabled collector is active.

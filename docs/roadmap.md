@@ -170,18 +170,18 @@ These milestones are **outside the first usable release**. M3b extends the edito
 
 ### M7 — Deployment
 
-**Status:** In progress. **Release:** Later.
+**Status:** Complete. **Release:** Later.
 
 - [x] Implement release builds and standalone application generation.
 - [x] Add deterministic asset compilation and disposable packed caches.
-- [ ] Establish Windows, Linux, and macOS packaging and platform validation.
+- [x] Establish Windows, Linux, and macOS packaging and platform validation.
 - [x] Add profiling and deployment diagnostics.
 - [x] Ship an example game without requiring the development editor.
 - [x] Pass asset and packaging checks and demonstrate the standalone game.
 
 **Exit criterion:** The example game runs standalone without the development editor.
 
-**Verification so far:** 2,474 headless checks pass. The relocated Linux release completes 240 headless and 240 rendered frames with its source tree, Quicklisp, SBCL installation, and installed GLFW/OpenAL files unavailable. OpenGL, Vulkan, and editor profiling demonstrations pass. Windows and macOS native validation remains pending. See [M7 implementation and verification](m7-implementation.md) and the [deployment guide](deployment.md).
+**Verification:** Native Linux, Windows, macOS ARM64, and macOS Intel build/package jobs pass in [run 38217645456](https://github.com/EdenCompiler/s-geometry/actions/runs/38217645456). Their suites pass 2,505, 2,497, 2,501, and 2,501 checks respectively, with zero skips or failures. Each relocated release completes 240 headless and 240 rendered frames with the checkout and Quicklisp unavailable, an isolated home, the editor absent, and no reported errors. Captures show the completed game; each renderer supplies 240 GPU timing and pipeline records. Package and archive hashes match their manifests. The local Linux release also runs with SBCL and installed GLFW/OpenAL files masked. OpenGL, Vulkan, and editor profiling demonstrations pass. CI rendering uses Mesa llvmpipe on Linux/Windows and Apple Software Renderer on macOS. See [M7 implementation and verification](m7-implementation.md) and the [deployment guide](deployment.md).
 
 ### M8 — Advanced geometry
 
