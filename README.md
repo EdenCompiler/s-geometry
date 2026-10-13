@@ -1,6 +1,6 @@
 # S-Geometry/CL
 
-S-Geometry/CL is a 3D modeler written in Common Lisp, inspired by [S-Geometry on the Symbolics Lisp machines](docs/original-s-geometry-summary.md). The polygon database, editor, and Lisp listener run in the same image.
+S-Geometry/CL is a 3D modeler written in Common Lisp, inspired by [S-Geometry on the Symbolics Lisp machines](docs/original-s-geometry-summary.md).
 
 The menus and the Lisp listener work on the same objects. You can move a vertex with the mouse, inspect the mesh in Lisp, redefine a function, and use it on that mesh without restarting the editor. Lisp objects hold the scene; the renderer builds its buffers from them.
 

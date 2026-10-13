@@ -52,6 +52,8 @@ The same editor check passes under llvmpipe with Xvfb. A separate seven-frame ch
 
 The Linux CI job runs all three native checks under Xvfb with Mesa software rendering. The existing native package matrix continues to exercise headless tests and standalone builds on Linux, Windows, and both macOS architectures.
 
+All four jobs pass in [run 38325036814](https://github.com/EdenCompiler/s-geometry/actions/runs/38325036814), which tests implementation commit `d3d70cf`. Linux also passes the three M8 native checks; every platform passes its headless suite, native build, relocated standalone checks, and rendered package validation.
+
 ## Limits
 
 The half-edge contract remains orientable manifold solids and open surfaces. Booleans require closed, correctly nested and oriented shells without crossing or overlapping faces. Separate components can touch at points or edges. Empty CSG results are `nil`; removing an object is explicit, and an empty result cannot replace a nonempty target.
